@@ -2,8 +2,9 @@ import React from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Image } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import theme from '../constants/theme'
 import { hp, wp } from '../helpers/common'
+import { useAppTheme } from '../app/theme'
+import ThemedText from '../app/components/ThemedText'
 
 const AppTopBar = ({
   schoolName = 'Your University',
@@ -14,6 +15,7 @@ const AppTopBar = ({
   showBackButton = null, // null = auto-detect, true/false = override
 }) => {
   const router = useRouter()
+  const theme = useAppTheme()
   
   // Auto-detect if we can go back, unless explicitly set
   const canGoBack = showBackButton !== null 
@@ -25,6 +27,8 @@ const AppTopBar = ({
       router.back()
     }
   }
+
+  const styles = createStyles(theme)
 
   return (
     <View style={styles.topBar}>
@@ -63,7 +67,7 @@ const AppTopBar = ({
             style={styles.bondedLogo}
             resizeMode="contain"
           />
-          <Text style={styles.bondedText}>Bonded</Text>
+          <ThemedText style={styles.bondedText}>Bonded</ThemedText>
         </View>
         {onPressSchool && showChevron && (
           <TouchableOpacity
@@ -88,14 +92,14 @@ const AppTopBar = ({
 
 export default AppTopBar
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: wp(4),
     paddingVertical: hp(1.5),
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background,
     height: hp(5.5),
   },
   iconButton: {

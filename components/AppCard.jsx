@@ -1,8 +1,11 @@
 import React from 'react'
 import { View, StyleSheet, Platform } from 'react-native'
 import { hp, wp } from '../helpers/common'
+import { useAppTheme } from '../app/theme'
 
 const AppCard = ({ children, style, radius = 'lg', padding = true }) => {
+  const theme = useAppTheme()
+  const styles = createStyles(theme)
   const radiusValue = radius === 'lg' ? hp(1.8) : hp(1.2)
 
   return (
@@ -23,9 +26,9 @@ const AppCard = ({ children, style, radius = 'lg', padding = true }) => {
 
 export default AppCard
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.surface,
     ...Platform.select({
       ios: {
         shadowColor: '#000',

@@ -4,7 +4,8 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { LinearGradient } from 'expo-linear-gradient'
 import { hp, wp } from '../helpers/common'
-import theme from '../constants/theme'
+import { useAppTheme } from '../app/theme'
+import ThemedText from '../app/components/ThemedText'
 
 const AppHeader = ({
   title,
@@ -12,9 +13,11 @@ const AppHeader = ({
   rightActionLabel,
   showBack = true,
   onBack,
-  backgroundColor = '#FFFFFF',
+  backgroundColor,
 }) => {
   const router = useRouter()
+  const theme = useAppTheme()
+  const bgColor = backgroundColor || theme.colors.background
 
   const handleBack = () => {
     if (onBack) {
@@ -24,15 +27,17 @@ const AppHeader = ({
     }
   }
 
+  const styles = createStyles(theme)
+
   return (
-    <View style={[styles.header, { backgroundColor }]}>
+    <View style={[styles.header, { backgroundColor: bgColor, borderBottomColor: theme.colors.border }]}>
       {showBack && (
         <TouchableOpacity
           style={styles.backButton}
           onPress={handleBack}
           activeOpacity={0.6}
         >
-          <Ionicons name="arrow-back" size={hp(2.2)} color="#000000" />
+          <Ionicons name="arrow-back" size={hp(2.2)} color={theme.colors.textPrimary} />
         </TouchableOpacity>
       )}
       
@@ -40,9 +45,9 @@ const AppHeader = ({
       
       {title && (
         <View style={styles.titleContainer}>
-          <Text style={styles.title} numberOfLines={1}>
+          <ThemedText style={styles.title} numberOfLines={1}>
             {title}
-          </Text>
+          </ThemedText>
         </View>
       )}
       
@@ -53,7 +58,7 @@ const AppHeader = ({
           activeOpacity={0.6}
         >
           {rightActionLabel && (
-            <Text style={styles.rightActionText}>{rightActionLabel}</Text>
+            <ThemedText style={styles.rightActionText}>{rightActionLabel}</ThemedText>
           )}
         </TouchableOpacity>
       ) : (
@@ -65,7 +70,7 @@ const AppHeader = ({
 
 export default AppHeader
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -73,8 +78,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp(4),
     paddingVertical: hp(1.5),
     height: hp(6),
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -102,7 +106,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: hp(2.4),
     fontWeight: '600',
-    color: '#000000',
     letterSpacing: -0.3,
   },
   rightAction: {
@@ -115,7 +118,7 @@ const styles = StyleSheet.create({
   rightActionText: {
     fontSize: hp(1.6),
     fontWeight: '600',
-    color: theme.colors.bondedPurple,
+    color: theme.colors.accent,
   },
 })
 

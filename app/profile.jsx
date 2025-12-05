@@ -5,8 +5,10 @@ import BottomNav from '../components/BottomNav'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import theme from '../constants/theme'
 import { hp, wp } from '../helpers/common'
+import { useAppTheme } from './theme'
+import ThemedView from './components/ThemedView'
+import ThemedText from './components/ThemedText'
 import AppHeader from '../components/AppHeader'
 import AppCard from '../components/AppCard'
 import Chip from '../components/Chip'
@@ -48,11 +50,13 @@ const MOCK_FRIENDS = [
 
 export default function Profile() {
   const router = useRouter()
+  const theme = useAppTheme()
   const [userProfile, setUserProfile] = useState(MOCK_USER_PROFILE)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editBio, setEditBio] = useState(userProfile.bio)
   const [editSocialLinks, setEditSocialLinks] = useState(userProfile.socialLinks)
+  const styles = createStyles(theme)
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -315,7 +319,7 @@ export default function Profile() {
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#F2F2F7',
@@ -356,7 +360,7 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: hp(2.6),
     fontWeight: '600',
-    color: '#000000',
+    color: theme.colors.textPrimary,
     marginBottom: hp(0.3),
     letterSpacing: -0.3,
   },
@@ -388,7 +392,7 @@ const styles = StyleSheet.create({
   groupJamLabel: {
     fontSize: hp(1.6),
     fontWeight: '600',
-    color: '#000000',
+    color: theme.colors.textPrimary,
   },
   groupJamValue: {
     fontSize: hp(2),
@@ -416,7 +420,7 @@ const styles = StyleSheet.create({
   },
   bioText: {
     fontSize: hp(1.5),
-    color: '#000000',
+    color: theme.colors.textPrimary,
     lineHeight: hp(2.2),
     fontWeight: '400',
   },
@@ -455,7 +459,7 @@ const styles = StyleSheet.create({
   socialTitle: {
     fontSize: hp(1.6),
     fontWeight: '600',
-    color: '#000000',
+    color: theme.colors.textPrimary,
     marginBottom: hp(1.5),
   },
   socialLinksRow: {
@@ -476,7 +480,7 @@ const styles = StyleSheet.create({
   socialLinkText: {
     fontSize: hp(1.4),
     fontWeight: '500',
-    color: '#000000',
+    color: theme.colors.textPrimary,
   },
   friendsButton: {
     marginBottom: hp(2),
@@ -497,7 +501,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: hp(2.4),
     fontWeight: '600',
-    color: '#000000',
+    color: theme.colors.textPrimary,
     letterSpacing: -0.3,
   },
   modalCloseButton: {
@@ -524,7 +528,7 @@ const styles = StyleSheet.create({
   friendName: {
     fontSize: hp(1.8),
     fontWeight: '600',
-    color: '#000000',
+    color: theme.colors.textPrimary,
     marginBottom: hp(0.2),
   },
   friendDetails: {
@@ -545,12 +549,12 @@ const styles = StyleSheet.create({
   editLabel: {
     fontSize: hp(1.6),
     fontWeight: '600',
-    color: '#000000',
+    color: theme.colors.textPrimary,
     marginBottom: hp(1),
   },
   editInput: {
     fontSize: hp(1.5),
-    color: '#000000',
+    color: theme.colors.textPrimary,
     lineHeight: hp(2.2),
     minHeight: hp(10),
     textAlignVertical: 'top',
@@ -564,10 +568,10 @@ const styles = StyleSheet.create({
   socialInput: {
     flex: 1,
     fontSize: hp(1.5),
-    color: '#000000',
+    color: theme.colors.textPrimary,
     paddingVertical: hp(1),
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
+    borderBottomColor: theme.colors.border,
   },
   saveButton: {
     marginTop: hp(2),

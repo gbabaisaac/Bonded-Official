@@ -3,10 +3,12 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ScrollVi
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import theme from '../constants/theme'
 import { hp, wp } from '../helpers/common'
 import AppTopBar from '../components/AppTopBar'
 import BottomNav from '../components/BottomNav'
+import { useAppTheme } from './theme'
+import ThemedView from './components/ThemedView'
+import ThemedText from './components/ThemedText'
 
 const MOCK_SUGGESTED_PEOPLE = [
   { id: 'suggest-1', name: 'Alex', photoUrl: 'https://randomuser.me/api/portraits/men/1.jpg' },
@@ -118,6 +120,7 @@ const MOCK_MESSAGES = [
 
 export default function Messages() {
   const router = useRouter()
+  const theme = useAppTheme()
   const [searchQuery, setSearchQuery] = useState('')
   const [isNewChatModalVisible, setIsNewChatModalVisible] = useState(false)
   const [isFriendSelectionVisible, setIsFriendSelectionVisible] = useState(false)
@@ -197,6 +200,8 @@ export default function Messages() {
       </View>
     </TouchableOpacity>
   )
+
+  const styles = createStyles(theme)
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -566,7 +571,7 @@ export default function Messages() {
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#F2F2F7',
@@ -822,7 +827,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background,
     borderRadius: theme.radius.xl,
     padding: wp(5),
     width: wp(85),
@@ -857,7 +862,7 @@ const styles = StyleSheet.create({
     width: hp(4.5),
     height: hp(4.5),
     borderRadius: hp(2.25),
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: wp(3),
@@ -890,7 +895,7 @@ const styles = StyleSheet.create({
   },
   modalSafeArea: {
     flex: 1,
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background,
   },
   selectionContainer: {
     flex: 1,
@@ -928,7 +933,7 @@ const styles = StyleSheet.create({
   friendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background,
     borderRadius: theme.radius.lg,
     padding: wp(4),
     marginBottom: hp(1.2),
@@ -962,7 +967,7 @@ const styles = StyleSheet.create({
   forumItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background,
     borderRadius: theme.radius.lg,
     padding: wp(4),
     marginBottom: hp(1.2),
@@ -999,7 +1004,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   profileModalContent: {
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background,
     borderTopLeftRadius: theme.radius.xl,
     borderTopRightRadius: theme.radius.xl,
     paddingHorizontal: wp(6),
@@ -1020,13 +1025,13 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: hp(2.6),
     fontWeight: '800',
-    color: theme.colors.charcoal,
+    color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.heading,
   },
   profileSubText: {
     marginTop: hp(0.5),
     fontSize: hp(1.7),
-    color: theme.colors.softBlack,
+    color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.body,
     opacity: 0.8,
   },
@@ -1041,7 +1046,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: theme.radius.lg,
     overflow: 'hidden',
-    backgroundColor: theme.colors.offWhite,
+    backgroundColor: theme.colors.surface,
     marginBottom: hp(2),
   },
   profileImage: {
@@ -1060,7 +1065,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
   },
   profilePrimaryButton: {
-    backgroundColor: theme.colors.bondedPurple,
+    backgroundColor: theme.colors.accent,
   },
   profilePrimaryText: {
     fontSize: hp(1.8),
@@ -1069,7 +1074,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   profileGroupJamScore: {
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background,
     borderRadius: theme.radius.lg,
     padding: wp(4),
     marginBottom: hp(2),
@@ -1104,7 +1109,7 @@ const styles = StyleSheet.create({
   },
   groupJamScoreFill: {
     height: '100%',
-    backgroundColor: theme.colors.bondedPurple,
+    backgroundColor: theme.colors.accent,
     borderRadius: theme.radius.full,
   },
   groupJamScoreDescription: {

@@ -9,6 +9,7 @@ import { EventsProvider } from '../contexts/EventsContext'
 import { ClubsProvider, useClubsContext } from '../contexts/ClubsContext'
 import theme from '../constants/theme'
 import { hp, wp } from '../helpers/common'
+import { ThemeProvider } from './theme'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
@@ -26,8 +27,8 @@ const DrawerItem = ({ icon, label, onPress }: { icon: string; label: string; onP
     <Ionicons
       name={icon as any}
       size={hp(2.2)}
-      color={theme.colors.offWhite}
-      style={{ opacity: 0.9, marginRight: wp(3) }}
+      color={theme.colors.white}
+      style={{ opacity: 0.95, marginRight: wp(3) }}
     />
     <Text
       style={{
@@ -81,7 +82,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
     <Pressable
       style={{
         flex: 1,
-        backgroundColor: theme.colors.charcoal,
+        backgroundColor: '#000000',
         ...Platform.select({
           ios: {
             shadowColor: '#000',
@@ -109,7 +110,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
             paddingHorizontal: wp(4),
             paddingBottom: hp(3),
             borderBottomWidth: 1,
-            borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+            borderBottomColor: 'rgba(255, 255, 255, 0.08)',
           }}
         >
             <View style={{ position: 'relative', alignItems: 'center', marginBottom: hp(2) }}>
@@ -942,30 +943,32 @@ const RootLayout = () => {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <DrawerLayout
-        ref={drawerRef}
-        drawerWidth={SCREEN_WIDTH * 0.75}
-        drawerPosition="left"
-        drawerType="front"
-        edgeWidth={SCREEN_WIDTH * 0.4}
-        renderNavigationView={renderDrawer}
-      >
-        <StoriesProvider>
-          <EventsProvider>
-            <ClubsProvider>
-              <QueryProvider>
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    gestureEnabled: false,
-                    animation: 'none',
-                  }}
-                />
-              </QueryProvider>
-            </ClubsProvider>
-          </EventsProvider>
-        </StoriesProvider>
-      </DrawerLayout>
+      <ThemeProvider>
+        <DrawerLayout
+          ref={drawerRef}
+          drawerWidth={SCREEN_WIDTH * 0.75}
+          drawerPosition="left"
+          drawerType="front"
+          edgeWidth={SCREEN_WIDTH * 0.4}
+          renderNavigationView={renderDrawer}
+        >
+          <StoriesProvider>
+            <EventsProvider>
+              <ClubsProvider>
+                <QueryProvider>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      gestureEnabled: false,
+                      animation: 'none',
+                    }}
+                  />
+                </QueryProvider>
+              </ClubsProvider>
+            </EventsProvider>
+          </StoriesProvider>
+        </DrawerLayout>
+      </ThemeProvider>
     </GestureHandlerRootView>
   )
 }

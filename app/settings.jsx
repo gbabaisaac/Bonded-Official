@@ -3,41 +3,46 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 're
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import theme from '../constants/theme'
 import { hp, wp } from '../helpers/common'
 import AppTopBar from '../components/AppTopBar'
 import BottomNav from '../components/BottomNav'
 import AppHeader from '../components/AppHeader'
 import AppCard from '../components/AppCard'
 import SectionHeader from '../components/SectionHeader'
+import { useAppTheme, useThemeMode } from './theme'
+import ThemedView from './components/ThemedView'
+import ThemedText from './components/ThemedText'
 
 export default function Settings() {
   const router = useRouter()
-  const [darkMode, setDarkMode] = useState(false)
+  const theme = useAppTheme()
+  const { mode, setMode } = useThemeMode()
+  const isDarkMode = mode === 'dark'
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [emailNotifications, setEmailNotifications] = useState(false)
+  const styles = createStyles(theme)
 
-  const SettingItem = ({ icon, title, subtitle, onPress, rightComponent, showArrow = true }) => (
+  const SettingItem = ({ icon, title, subtitle, onPress, rightComponent, showArrow = true, titleStyle }) => (
     <TouchableOpacity
-      style={styles.settingItem}
+      style={[styles.settingItem, { borderBottomColor: theme.colors.border }]}
       activeOpacity={0.7}
       onPress={onPress}
       disabled={!onPress}
     >
       <View style={styles.settingLeft}>
-        <View style={styles.settingIconContainer}>
-          <Ionicons name={icon} size={hp(2.2)} color={theme.colors.bondedPurple} />
+        <View style={[styles.settingIconContainer, { backgroundColor: theme.colors.surface }]}>
+          <Ionicons name={icon} size={hp(2.2)} color={theme.colors.accent} />
         </View>
         <View style={styles.settingTextContainer}>
-          <Text style={styles.settingTitle}>{title}</Text>
-          {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+          <ThemedText style={[styles.settingTitle, titleStyle]}>{title}</ThemedText>
+          {subtitle && <ThemedText variant="secondary" style={styles.settingSubtitle}>{subtitle}</ThemedText>}
         </View>
       </View>
       {rightComponent || (showArrow && (
         <Ionicons
           name="chevron-forward"
           size={hp(2)}
-          color={theme.colors.softBlack}
+          color={theme.colors.textSecondary}
           style={{ opacity: 0.5 }}
         />
       ))}
@@ -45,8 +50,8 @@ export default function Settings() {
   )
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <View style={styles.container}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]} edges={['top', 'left', 'right']}>
+      <ThemedView style={styles.container}>
         <AppHeader title="Settings" />
 
         <ScrollView
@@ -63,10 +68,11 @@ export default function Settings() {
                 subtitle="Switch to dark theme"
                 rightComponent={
                   <Switch
-                    value={darkMode}
-                    onValueChange={setDarkMode}
-                    trackColor={{ false: theme.colors.offWhite, true: theme.colors.bondedPurple }}
+                    value={isDarkMode}
+                    onValueChange={(value) => setMode(value ? 'dark' : 'light')}
+                    trackColor={{ false: theme.colors.surface, true: theme.colors.accent }}
                     thumbColor={theme.colors.white}
+                    ios_backgroundColor={theme.colors.surface}
                   />
                 }
                 showArrow={false}
@@ -84,8 +90,9 @@ export default function Settings() {
                   <Switch
                     value={notificationsEnabled}
                     onValueChange={setNotificationsEnabled}
-                    trackColor={{ false: theme.colors.offWhite, true: theme.colors.bondedPurple }}
+                    trackColor={{ false: theme.colors.surface, true: theme.colors.accent }}
                     thumbColor={theme.colors.white}
+                    ios_backgroundColor={theme.colors.surface}
                   />
                 }
                 showArrow={false}
@@ -98,8 +105,9 @@ export default function Settings() {
                   <Switch
                     value={emailNotifications}
                     onValueChange={setEmailNotifications}
-                    trackColor={{ false: theme.colors.offWhite, true: theme.colors.bondedPurple }}
+                    trackColor={{ false: theme.colors.surface, true: theme.colors.accent }}
                     thumbColor={theme.colors.white}
+                    ios_backgroundColor={theme.colors.surface}
                   />
                 }
                 showArrow={false}
@@ -159,7 +167,7 @@ export default function Settings() {
               <SettingItem
                 icon="log-out-outline"
                 title="Sign Out"
-                titleStyle={{ color: theme.colors.error }}
+                titleStyle={{ color: '#ED4956' }}
                 onPress={() => {
                   // TODO: Handle sign out
                 }}
@@ -168,15 +176,14 @@ export default function Settings() {
         </ScrollView>
 
         <BottomNav />
-      </View>
+      </ThemedView>
     </SafeAreaView>
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.colors.offWhite,
   },
   container: {
     flex: 1,
@@ -197,8 +204,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: hp(1.8),
     paddingHorizontal: wp(4),
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.offWhite,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   settingLeft: {
     flexDirection: 'row',
@@ -209,7 +215,6 @@ const styles = StyleSheet.create({
     width: hp(4),
     height: hp(4),
     borderRadius: hp(2),
-    backgroundColor: theme.colors.offWhite,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: wp(3),
@@ -220,13 +225,11 @@ const styles = StyleSheet.create({
   settingTitle: {
     fontSize: hp(1.9),
     fontWeight: '600',
-    color: theme.colors.charcoal,
     fontFamily: theme.typography.fontFamily.heading,
     marginBottom: hp(0.2),
   },
   settingSubtitle: {
     fontSize: hp(1.5),
-    color: theme.colors.softBlack,
     fontFamily: theme.typography.fontFamily.body,
     opacity: 0.7,
   },

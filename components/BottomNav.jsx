@@ -3,13 +3,15 @@ import React, { useRef, useEffect } from 'react'
 import { useRouter, usePathname } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import theme from '../constants/theme'
 import { hp, wp } from '../helpers/common'
+import { useAppTheme } from '../app/theme'
+import ThemedText from '../app/components/ThemedText'
 
 const BottomNav = ({ scrollY = null }) => {
   const router = useRouter()
   const pathname = usePathname()
   const insets = useSafeAreaInsets()
+  const theme = useAppTheme()
   
   // Animation for hiding/showing nav on scroll
   const navTranslateY = useRef(new Animated.Value(0)).current
@@ -87,6 +89,13 @@ const BottomNav = ({ scrollY = null }) => {
       route: '/messages',
     },
     {
+      id: 'events',
+      label: 'Events',
+      icon: 'calendar-outline',
+      activeIcon: 'calendar',
+      route: '/events',
+    },
+    {
       id: 'forum',
       label: 'Forum',
       icon: 'chatbox-ellipses-outline',
@@ -96,8 +105,8 @@ const BottomNav = ({ scrollY = null }) => {
     {
       id: 'calendar',
       label: 'Calendar',
-      icon: 'calendar-outline',
-      activeIcon: 'calendar',
+      icon: 'time-outline',
+      activeIcon: 'time',
       route: '/calendar',
     },
   ]
@@ -110,8 +119,13 @@ const BottomNav = ({ scrollY = null }) => {
     if (route === '/yearbook') {
       return pathname === '/yearbook' || pathname === '/home' || pathname === '/'
     }
+    if (route === '/events') {
+      return pathname === '/events' || pathname?.startsWith('/events/')
+    }
     return pathname === route || pathname?.startsWith(route + '/')
   }
+
+  const styles = createStyles(theme)
 
   return (
     <Animated.View
@@ -136,17 +150,17 @@ const BottomNav = ({ scrollY = null }) => {
               <Ionicons
                 name={active ? tab.activeIcon : tab.icon}
                 size={active ? hp(2.5) : hp(2.2)}
-                color={active ? theme.colors.bondedPurple : '#8E8E93'}
+                color={active ? theme.colors.accent : theme.colors.textSecondary}
                 style={{ strokeWidth: active ? 1.5 : 1 }}
               />
-              <Text
+              <ThemedText
                 style={[
                   styles.tabLabel,
                   active && styles.tabLabelActive,
                 ]}
               >
                 {tab.label}
-              </Text>
+              </ThemedText>
               {active && <View style={styles.activeIndicator} />}
             </TouchableOpacity>
           )
@@ -158,7 +172,7 @@ const BottomNav = ({ scrollY = null }) => {
 
 export default BottomNav
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: 0,
@@ -172,9 +186,9 @@ const styles = StyleSheet.create({
   },
   navPill: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
+    backgroundColor: theme.colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
     paddingVertical: hp(1.2),
     paddingHorizontal: wp(4),
     width: '100%',
@@ -209,14 +223,14 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: hp(1.1),
-    color: '#8E8E93',
+    color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '400',
     marginTop: hp(0.1),
     letterSpacing: -0.1,
   },
   tabLabelActive: {
-    color: theme.colors.bondedPurple,
+    color: theme.colors.accent,
     fontWeight: '500',
   },
   activeIndicator: {
@@ -225,7 +239,7 @@ const styles = StyleSheet.create({
     width: wp(2.5),
     height: hp(0.3),
     borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.bondedPurple,
+    backgroundColor: theme.colors.accent,
   },
 })
 

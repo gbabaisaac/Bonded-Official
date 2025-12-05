@@ -9,5 +9,8 @@ config.resolver.alias = {
   '@': path.resolve(__dirname, './'),
 };
 
+// Ensure proper resolution for lucide-react-native
+config.resolver.sourceExts = [...(config.resolver.sourceExts || []), 'js', 'jsx', 'json', 'ts', 'tsx', 'mjs'];
+
 module.exports = config;
 

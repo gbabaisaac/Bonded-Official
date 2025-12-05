@@ -1,74 +1,27 @@
-import React, { useMemo, useState, useRef } from 'react'
+import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Modal, Pressable, ScrollView, Platform, Animated } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
+import { Filter, ArrowLeft, MoreHorizontal, School, Calendar, User, MapPin, UserPlus, MessageCircle, X } from '../components/Icons'
 import { useRouter } from 'expo-router'
-import theme from '../constants/theme'
 import { hp, wp } from '../helpers/common'
 import BottomNav from '../components/BottomNav'
 import Picker from '../components/Picker'
 import AppTopBar from '../components/AppTopBar'
 import AppCard from '../components/AppCard'
 import { LinearGradient } from 'expo-linear-gradient'
+import { generateProfiles } from '../services/profileGenerator'
+import { fetchMultiplePhotos, getPhotoUrl } from '../services/unsplashService'
+import { useAppTheme } from './theme'
+import ThemedView from './components/ThemedView'
+import ThemedText from './components/ThemedText'
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList)
-
-// Temporary mock data for grid testing
-const QUOTES = [
-  "Making memories, one day at a time.",
-  "Living my best college life!",
-  "Finding my people on campus.",
-  "Dream big, work hard, stay humble.",
-  "Creating my own path.",
-  "Here for the vibes and the grades.",
-  "Building the future, one class at a time.",
-  "Coffee, classes, and good times.",
-  "Making every moment count.",
-  "Chasing dreams and making memories.",
-  "Here to learn, grow, and connect.",
-  "Living authentically, one day at a time.",
-  "Building bridges, not walls.",
-  "Making my mark, one step at a time.",
-  "Here for the journey, not just the destination.",
-  "Creating my story, one chapter at a time.",
-  "Living life with purpose and passion.",
-  "Making waves, not ripples.",
-  "Here to make a difference.",
-  "Building a life I'm proud of.",
-]
-
-const FIRST_NAMES = [
-  'Alex', 'Jordan', 'Taylor', 'Riley', 'Casey', 'Morgan',
-  'Sam', 'Jamie', 'Quinn', 'Avery', 'Blake', 'Cameron',
-  'Dakota', 'Emery', 'Finley', 'Harper', 'Hayden', 'Kai',
-  'Logan', 'Noah', 'Parker', 'Reese', 'River', 'Sage'
-]
-
-const MOCK_PROFILES = Array.from({ length: 200 }).map((_, index) => {
-  const grades = ['Freshman', 'Sophomore', 'Junior', 'Senior']
-  const genders = ['male', 'female', 'non-binary']
-  const majors = ['Computer Science', 'Business', 'Psychology', 'Biology', 'Engineering', 'Marketing', 'Communications', 'Economics']
-  const years = ['2025', '2024', '2023', '2022']
-  const ages = [18, 19, 20, 21, 22]
-
-  return {
-    id: `user-${index + 1}`,
-    name: FIRST_NAMES[index % FIRST_NAMES.length] + ' ' + ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'][index % 10],
-    major: majors[index % majors.length],
-    year: years[index % years.length],
-    grade: grades[index % grades.length],
-    gender: genders[index % genders.length],
-    age: ages[index % ages.length],
-    quote: QUOTES[index % QUOTES.length],
-    photoUrl: `https://randomuser.me/api/portraits/${genders[index % genders.length] === 'male' ? 'men' : genders[index % genders.length] === 'female' ? 'women' : 'men'}/${(index % 99) + 1}.jpg`,
-    groupjamScore: Math.floor(Math.random() * 40) + 60, // Random score between 60-100
-  }
-})
 
 const YEARS = ['2025', '2024', '2023', '2022']
 
 export default function Yearbook() {
   const router = useRouter()
+  const theme = useAppTheme()
   const [selectedYear, setSelectedYear] = useState(YEARS[0])
   const [sortOption, setSortOption] = useState('recent')
   const [gradeFilter, setGradeFilter] = useState(null)
@@ -77,10 +30,44 @@ export default function Yearbook() {
   const [genderFilter, setGenderFilter] = useState(null)
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false)
   const [activeProfile, setActiveProfile] = useState(null)
+  const [profiles, setProfiles] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
   const scrollY = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const isAnimating = useRef(false)
+
+  // Generate profiles on mount - cached per session
+  useEffect(() => {
+    const generateData = async () => {
+      setIsLoading(true)
+      try {
+        // Fetch photos from Unsplash (will use cache if available)
+        const photoUrls = await fetchMultiplePhotos(200)
+        
+        // Generate profiles with Unsplash photos
+        const generatedProfiles = generateProfiles(200, (width, height, seed) => {
+          // Extract index from seed (e.g., "profile-5" -> 5)
+          let index = 0
+          if (seed && seed.startsWith('profile-')) {
+            index = parseInt(seed.replace('profile-', '')) || 0
+          }
+          // Use the fetched Unsplash photos, fallback to Picsum if needed
+          return photoUrls[index] || getPhotoUrl(width, height, seed)
+        })
+        
+        setProfiles(generatedProfiles)
+      } catch (error) {
+        console.error('❌ Error generating profiles:', error)
+        // Fallback to Picsum Photos
+        const generatedProfiles = generateProfiles(200, getPhotoUrl)
+        setProfiles(generatedProfiles)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    generateData()
+  }, [])
 
   const yearOptions = YEARS.map((year) => ({ value: year, label: year }))
 
@@ -99,9 +86,20 @@ export default function Yearbook() {
 
   const majorOptions = [
     { value: 'Computer Science', label: 'Computer Science' },
-    { value: 'Business', label: 'Business' },
+    { value: 'Business Administration', label: 'Business Administration' },
     { value: 'Psychology', label: 'Psychology' },
     { value: 'Biology', label: 'Biology' },
+    { value: 'Engineering', label: 'Engineering' },
+    { value: 'Marketing', label: 'Marketing' },
+    { value: 'Communications', label: 'Communications' },
+    { value: 'Economics', label: 'Economics' },
+    { value: 'English', label: 'English' },
+    { value: 'Political Science', label: 'Political Science' },
+    { value: 'Art & Design', label: 'Art & Design' },
+    { value: 'Nursing', label: 'Nursing' },
+    { value: 'Education', label: 'Education' },
+    { value: 'Finance', label: 'Finance' },
+    { value: 'Data Science', label: 'Data Science' },
   ]
 
   const genderOptions = [
@@ -116,8 +114,10 @@ export default function Yearbook() {
     { value: 'alpha', label: 'A–Z' },
   ]
 
-  const profiles = useMemo(() => {
-    let result = MOCK_PROFILES.filter((p) => p.year === selectedYear)
+  const filteredProfiles = useMemo(() => {
+    if (profiles.length === 0) return []
+    
+    let result = profiles.filter((p) => p.year === selectedYear)
 
     if (gradeFilter) {
       result = result.filter((p) => p.grade === gradeFilter)
@@ -146,7 +146,7 @@ export default function Yearbook() {
     }
 
     return result
-  }, [selectedYear, gradeFilter, majorFilter, genderFilter, ageFilter, sortOption])
+  }, [profiles, selectedYear, gradeFilter, majorFilter, genderFilter, ageFilter, sortOption])
 
   const numColumns = 3
   const gap = wp(1.5) // Gap between columns
@@ -247,6 +247,8 @@ export default function Yearbook() {
     }
   )
 
+  const styles = createStyles(theme)
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
@@ -258,7 +260,7 @@ export default function Yearbook() {
             left: 0,
             right: 0,
             zIndex: 10,
-            backgroundColor: theme.colors.white,
+            backgroundColor: theme.colors.background,
             paddingHorizontal: wp(4),
           }}
         >
@@ -279,27 +281,33 @@ export default function Yearbook() {
               activeOpacity={0.7}
               onPress={() => setIsFilterModalVisible(true)}
             >
-              <Ionicons
-                name="options-outline"
+              <Filter
                 size={hp(2.2)}
                 color={theme.colors.textSecondary}
+                strokeWidth={2}
               />
             </TouchableOpacity>
           </View>
         </Animated.View>
 
         {/* Profile Grid - Instagram Style */}
-        <AnimatedFlatList
-          data={profiles}
-          keyExtractor={(item) => item.id}
-          numColumns={numColumns}
-          columnWrapperStyle={numColumns > 1 ? styles.cardRow : null}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          renderItem={renderProfileCard}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-        />
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>Loading profiles...</Text>
+          </View>
+        ) : (
+          <AnimatedFlatList
+            data={filteredProfiles}
+            keyExtractor={(item) => item.id}
+            numColumns={numColumns}
+            columnWrapperStyle={numColumns > 1 ? styles.cardRow : null}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            renderItem={renderProfileCard}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+          />
+        )}
 
         {/* Profile Modal */}
         <Modal
@@ -319,7 +327,7 @@ export default function Yearbook() {
                     onPress={() => setActiveProfile(null)}
                   >
                     <View style={styles.profileModalTopBarCircle}>
-                      <Ionicons name="arrow-back" size={hp(2)} color={theme.colors.textPrimary} />
+                      <ArrowLeft size={hp(2)} color={theme.colors.textPrimary} strokeWidth={2} />
                     </View>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -330,7 +338,7 @@ export default function Yearbook() {
                     }}
                   >
                     <View style={styles.profileModalTopBarCircle}>
-                      <Ionicons name="ellipsis-horizontal" size={hp(2)} color={theme.colors.textPrimary} />
+                      <MoreHorizontal size={hp(2)} color={theme.colors.textPrimary} strokeWidth={2} />
                     </View>
                   </TouchableOpacity>
                 </View>
@@ -393,7 +401,7 @@ export default function Yearbook() {
                           // TODO: Add friend
                         }}
                       >
-                        <Ionicons name="person-add-outline" size={hp(2)} color={theme.colors.textPrimary} />
+                        <UserPlus size={hp(2)} color={theme.colors.textPrimary} strokeWidth={2} />
                         <Text style={styles.profileModalActionButtonSecondaryText}>Add friend</Text>
                       </TouchableOpacity>
                       
@@ -404,7 +412,7 @@ export default function Yearbook() {
                           // TODO: Navigate to messages
                         }}
                       >
-                        <Ionicons name="chatbubble-outline" size={hp(2)} color={theme.colors.white} />
+                        <MessageCircle size={hp(2)} color={theme.colors.white} strokeWidth={2} />
                         <Text style={styles.profileModalActionButtonPrimaryText}>Message</Text>
                       </TouchableOpacity>
                     </View>
@@ -412,10 +420,10 @@ export default function Yearbook() {
                     {/* Meta Info Pills */}
                     <View style={styles.profileModalMetaRow}>
                       <View style={styles.profileModalMetaPill}>
-                        <Ionicons
-                          name="school-outline"
+                        <School
                           size={hp(1.6)}
                           color={theme.colors.textSecondary}
+                          strokeWidth={2}
                           style={{ marginRight: wp(1) }}
                         />
                         <Text style={styles.profileModalMetaPillText}>
@@ -423,10 +431,10 @@ export default function Yearbook() {
                         </Text>
                       </View>
                       <View style={styles.profileModalMetaPill}>
-                        <Ionicons
-                          name="calendar-outline"
+                        <Calendar
                           size={hp(1.6)}
                           color={theme.colors.textSecondary}
+                          strokeWidth={2}
                           style={{ marginRight: wp(1) }}
                         />
                         <Text style={styles.profileModalMetaPillText}>
@@ -434,10 +442,10 @@ export default function Yearbook() {
                         </Text>
                       </View>
                       <View style={styles.profileModalMetaPill}>
-                        <Ionicons
-                          name="person-outline"
+                        <User
                           size={hp(1.6)}
                           color={theme.colors.textSecondary}
+                          strokeWidth={2}
                           style={{ marginRight: wp(1) }}
                         />
                         <Text style={styles.profileModalMetaPillText}>
@@ -464,11 +472,25 @@ export default function Yearbook() {
                     
                     {/* Location */}
                     <View style={styles.profileModalLocationRow}>
-                      <Ionicons name="location-outline" size={hp(1.8)} color={theme.colors.textSecondary} />
+                      <MapPin size={hp(1.8)} color={theme.colors.textSecondary} strokeWidth={2} />
                       <Text style={styles.profileModalLocationText}>
-                        University of Rhode Island
+                        {activeProfile.location || 'University of Rhode Island'}
                       </Text>
                     </View>
+                    
+                    {/* Interests Section */}
+                    {activeProfile.interests && activeProfile.interests.length > 0 && (
+                      <View style={styles.profileModalTagsSection}>
+                        <Text style={styles.profileModalTagsTitle}>Interests</Text>
+                        <View style={styles.profileModalTagsRow}>
+                          {activeProfile.interests.slice(0, 6).map((interest, idx) => (
+                            <View key={idx} style={styles.profileModalTag}>
+                              <Text style={styles.profileModalTagText}>{interest}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )}
                   </View>
                 </ScrollView>
               </>
@@ -499,10 +521,10 @@ export default function Yearbook() {
                   onPress={() => setIsFilterModalVisible(false)}
                   style={styles.modalCloseButton}
                 >
-                  <Ionicons
-                    name="close"
+                  <X
                     size={hp(2.6)}
                     color={theme.colors.charcoal}
+                    strokeWidth={2.5}
                   />
                 </TouchableOpacity>
               </View>
@@ -604,7 +626,7 @@ export default function Yearbook() {
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -665,7 +687,7 @@ const styles = StyleSheet.create({
   },
   cardBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: theme.colors.bondedPurple,
+    backgroundColor: theme.colors.accent,
     paddingHorizontal: wp(2.5),
     paddingVertical: hp(0.5),
     borderRadius: 9999,
@@ -701,7 +723,7 @@ const styles = StyleSheet.create({
   },
   cardQuote: {
     fontSize: hp(1.2),
-    color: '#8E8E93',
+    color: theme.colors.textSecondary,
     fontWeight: '400',
     lineHeight: hp(1.6),
   },
@@ -727,7 +749,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: hp(2.4),
     fontWeight: '700',
-    color: theme.colors.charcoal,
+    color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.heading,
   },
   modalCloseButton: {
@@ -756,14 +778,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modalResetButton: {
-    backgroundColor: theme.colors.offWhite,
+    backgroundColor: theme.colors.surface,
   },
   modalApplyButton: {
-    backgroundColor: theme.colors.bondedPurple,
+    backgroundColor: theme.colors.accent,
   },
   modalResetText: {
     fontSize: hp(1.8),
-    color: theme.colors.softBlack,
+    color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '500',
   },
@@ -775,7 +797,7 @@ const styles = StyleSheet.create({
   },
   profileModalContainer: {
     flex: 1,
-    backgroundColor: '#E8F4F8', // Light blue background
+    backgroundColor: theme.colors.background,
     paddingTop: hp(12), // Start lower on screen
   },
   profileModalTopBar: {
@@ -851,7 +873,7 @@ const styles = StyleSheet.create({
     height: wp(2.5),
   },
   profileModalInfoSection: {
-    backgroundColor: '#E8F4F8', // Light blue background
+    backgroundColor: theme.colors.background,
     paddingHorizontal: wp(5),
     paddingTop: hp(3),
     paddingBottom: hp(2),
@@ -1014,11 +1036,22 @@ const styles = StyleSheet.create({
   },
   groupJamScoreFill: {
     height: '100%',
-    backgroundColor: theme.colors.bondedPurple,
+    backgroundColor: theme.colors.accent,
     borderRadius: theme.radius.full,
   },
   groupJamScoreDescription: {
     fontSize: hp(1.3),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: hp(20),
+  },
+  loadingText: {
+    fontSize: hp(1.8),
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
   },

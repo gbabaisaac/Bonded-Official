@@ -19,7 +19,26 @@ import {
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
+import { 
+  Add, 
+  ArrowUpCircle, 
+  ArrowDownCircle, 
+  MessageCircle, 
+  Share2, 
+  Repeat, 
+  MoreHorizontal,
+  ImageIcon,
+  Video,
+  EyeOff,
+  Person,
+  X,
+  Tag,
+  BarChart3,
+  Mail,
+  ChevronDown,
+  MapPin,
+  Check
+} from '../components/Icons'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import theme from '../constants/theme'
 import { hp, wp } from '../helpers/common'
@@ -28,9 +47,7 @@ import BottomNav from '../components/BottomNav'
 import Stories from '../components/Stories/Stories'
 import StoryViewer from '../components/Stories/StoryViewer'
 import StoryFlow from '../components/Stories/StoryFlow'
-import EventPost from '../components/Events/EventPost'
 import ShareModal from '../components/ShareModal'
-import CreateEventModal from '../components/Events/CreateEventModal'
 import AppCard from '../components/AppCard'
 import PrimaryButton from '../components/PrimaryButton'
 import SecondaryButton from '../components/SecondaryButton'
@@ -39,7 +56,12 @@ import ForumSwitcher from '../components/ForumSwitcher'
 import ForumSelectorModal from '../components/ForumSelectorModal'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useStoriesContext } from '../contexts/StoriesContext'
-import { useEventsContext } from '../contexts/EventsContext'
+import TagSelector from '../components/Forum/TagSelector'
+import PollBuilder from '../components/Forum/PollBuilder'
+import PollRenderer from '../components/Forum/PollRenderer'
+import RepostModal from '../components/Forum/RepostModal'
+import AnonymousMessageButton from '../components/Forum/AnonymousMessageButton'
+import PostTags from '../components/Forum/PostTags'
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList)
 
@@ -393,6 +415,8 @@ const MOCK_POSTS = Array.from({ length: 60 }).map((_, index) => ({
   upvotes: Math.floor(Math.random() * 100) + 5,
   commentsCount: Math.floor(Math.random() * 50) + 2,
   timeAgo: `${Math.floor(Math.random() * 24)}h`,
+  tags: index % 4 === 0 ? ['Housing', 'Advice'] : index % 4 === 1 ? ['Events'] : index % 4 === 2 ? ['STEM', 'Need Help'] : [],
+  repostsCount: Math.floor(Math.random() * 20),
   ...(index % 5 === 0 && {
     media: [
       {
@@ -410,15 +434,28 @@ export default function Forum() {
   const [activePost, setActivePost] = useState(null)
   const [activeAuthorPost, setActiveAuthorPost] = useState(null)
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false)
-  const [isCreateEventModalVisible, setIsCreateEventModalVisible] = useState(false)
   const [draftTitle, setDraftTitle] = useState('')
   const [draftBody, setDraftBody] = useState('')
   const [draftIsAnon, setDraftIsAnon] = useState(true)
   const [draftMedia, setDraftMedia] = useState([])
+  const [showTagSelector, setShowTagSelector] = useState(false)
+  const [showPostAsModal, setShowPostAsModal] = useState(false)
+  const [selectedTag, setSelectedTag] = useState(null)
+  const [draftLocation, setDraftLocation] = useState('Valley, RI') // Mock location
+  const [draftTags, setDraftTags] = useState([])
+  const [draftPoll, setDraftPoll] = useState(null)
+  const [showPollBuilder, setShowPollBuilder] = useState(false)
   const [currentSchool, setCurrentSchool] = useState(params.schoolName || 'University of Rhode Island')
   const [currentForum, setCurrentForum] = useState(MOCK_FORUMS[0]) // Start with Main Forum
-  const [filter, setFilter] = useState('posts') // 'all', 'posts', 'events'
+  // Filter state removed - no longer needed
+  const [tagFilter, setTagFilter] = useState(null) // Filter by specific tag
   const [isForumSelectorVisible, setIsForumSelectorVisible] = useState(false)
+  const [showRepostModal, setShowRepostModal] = useState(false)
+  const [repostPost, setRepostPost] = useState(null)
+  const [commentSort, setCommentSort] = useState('best') // 'best', 'new', 'old'
+  const [polls, setPolls] = useState({}) // { postId: poll }
+  const [pollVotes, setPollVotes] = useState({}) // { pollId: { userId: optionIndex } }
+  const [pollResults, setPollResults] = useState({}) // { pollId: { totalVotes, voteCounts } }
   
   // Story state
   const [isStoryFlowVisible, setIsStoryFlowVisible] = useState(false)
@@ -429,7 +466,6 @@ export default function Forum() {
   const [shareContent, setShareContent] = useState(null)
   
   const { getForumStories } = useStoriesContext()
-  const { getForumEventPosts } = useEventsContext()
   
   // Mock current user - replace with real auth
   const currentUser = {
@@ -440,10 +476,7 @@ export default function Forum() {
   
   const currentForumId = currentForum?.id || 'forum-quad'
   
-  // Get event posts for this forum
-  const eventPosts = getForumEventPosts(currentForumId)
-  
-  // Filter and merge posts for current forum
+  // Filter posts for current forum
   const allPosts = useMemo(() => {
     // Filter regular posts by current forum
     const forumPosts = posts.filter((post) => {
@@ -472,23 +505,20 @@ export default function Forum() {
       sortDate: new Date(post.createdAt || Date.now()),
     }))
     
-    const eventPostsWithType = eventPosts.map((eventPost) => ({
-      ...eventPost,
-      type: 'event',
-      sortDate: new Date(eventPost.event?.startDate || Date.now()),
-    }))
+    const sorted = regularPosts.sort((a, b) => b.sortDate - a.sortDate)
     
-    const merged = [...regularPosts, ...eventPostsWithType]
-    const sorted = merged.sort((a, b) => b.sortDate - a.sortDate)
+    // All posts are shown (no filter needed)
+    let filtered = sorted
     
-    // Apply filter
-    if (filter === 'posts') {
-      return sorted.filter((item) => item.type === 'post')
-    } else if (filter === 'events') {
-      return sorted.filter((item) => item.type === 'event')
+    // Apply tag filter
+    if (tagFilter) {
+      filtered = filtered.filter((item) => {
+        return item.tags && item.tags.includes(tagFilter)
+      })
     }
-    return sorted
-  }, [posts, eventPosts, filter, currentForumId])
+    
+    return filtered
+  }, [posts, currentForumId, tagFilter])
   
   // Update school if params change
   React.useEffect(() => {
@@ -580,10 +610,10 @@ export default function Forum() {
           activeOpacity={0.8}
         >
           <View style={[styles.storyAvatar, styles.storyAddAvatar]}>
-            <Ionicons
-              name="add"
+            <Add
               size={hp(3)}
               color={theme.colors.bondedPurple}
+              strokeWidth={2.5}
             />
           </View>
           <Text style={styles.storyLabel}>New</Text>
@@ -644,10 +674,10 @@ export default function Forum() {
         </View>
       </TouchableOpacity>
         <TouchableOpacity activeOpacity={0.7}>
-          <Ionicons
-            name="ellipsis-horizontal"
+          <MoreHorizontal
             size={hp(2.4)}
             color={theme.colors.softBlack}
+            strokeWidth={2}
           />
         </TouchableOpacity>
       </View>
@@ -659,6 +689,44 @@ export default function Forum() {
             {item.body}
           </Text>
 
+          {/* Tags */}
+          {item.tags && item.tags.length > 0 && (
+            <PostTags tags={item.tags} maxDisplay={2} />
+          )}
+
+          {/* Poll */}
+          {polls[item.id] && (
+            <PollRenderer
+              poll={polls[item.id]}
+              userVote={pollVotes[polls[item.id].poll_id]?.[currentUser.id]}
+              onVote={(optionIndex) => {
+                const pollId = polls[item.id].poll_id
+                setPollVotes((prev) => ({
+                  ...prev,
+                  [pollId]: {
+                    ...(prev[pollId] || {}),
+                    [currentUser.id]: optionIndex,
+                  },
+                }))
+                // Update results
+                setPollResults((prev) => {
+                  const current = prev[pollId] || { totalVotes: 0, voteCounts: [] }
+                  const newCounts = [...(current.voteCounts || [])]
+                  newCounts[optionIndex] = (newCounts[optionIndex] || 0) + 1
+                  return {
+                    ...prev,
+                    [pollId]: {
+                      totalVotes: current.totalVotes + 1,
+                      voteCounts: newCounts,
+                    },
+                  }
+                })
+              }}
+              totalVotes={pollResults[polls[item.id].poll_id]?.totalVotes || 0}
+              voteCounts={pollResults[polls[item.id].poll_id]?.voteCounts || []}
+            />
+          )}
+
           {item.media && item.media.length > 0 && (
             <View style={styles.postMediaPreview}>
               {item.media[0].type === 'image' ? (
@@ -668,10 +736,11 @@ export default function Forum() {
                 />
               ) : (
                 <View style={styles.postMediaVideo}>
-                  <Ionicons
-                    name="play-circle"
+                  <Video
                     size={hp(4)}
                     color={theme.colors.white}
+                    strokeWidth={2}
+                    fill={theme.colors.white}
                   />
                   <Text style={styles.postMediaVideoText}>Video</Text>
                 </View>
@@ -695,10 +764,11 @@ export default function Forum() {
               )
             }
           >
-            <Ionicons
-              name="arrow-up-circle-outline"
+            <ArrowUpCircle
               size={hp(2.8)}
               color={item.upvotes > 0 ? '#2ecc71' : theme.colors.softBlack}
+              strokeWidth={2}
+              fill={item.upvotes > 0 ? '#2ecc71' : 'none'}
             />
           </TouchableOpacity>
           <Text
@@ -721,10 +791,11 @@ export default function Forum() {
               )
             }
           >
-            <Ionicons
-              name="arrow-down-circle-outline"
+            <ArrowDownCircle
               size={hp(2.8)}
               color={item.upvotes < 0 ? '#e74c3c' : theme.colors.softBlack}
+              strokeWidth={2}
+              fill={item.upvotes < 0 ? '#e74c3c' : 'none'}
             />
           </TouchableOpacity>
         </View>
@@ -734,14 +805,32 @@ export default function Forum() {
           activeOpacity={0.7}
           onPress={() => setActivePost(item)}
         >
-          <Ionicons
-            name="chatbubble-outline"
+          <MessageCircle
             size={hp(2.2)}
             color={theme.colors.softBlack}
+            strokeWidth={2}
           />
           <Text style={styles.postCommentsText}>
             {item.commentsCount} comments
           </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.postRepostButton}
+          activeOpacity={0.7}
+          onPress={() => {
+            setRepostPost(item)
+            setShowRepostModal(true)
+          }}
+        >
+          <Repeat
+            size={hp(2.2)}
+            color={theme.colors.softBlack}
+            strokeWidth={2}
+          />
+          {item.repostsCount > 0 && (
+            <Text style={styles.repostCount}>{item.repostsCount}</Text>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -755,10 +844,10 @@ export default function Forum() {
             setShowShareModal(true)
           }}
         >
-          <Ionicons
-            name="share-outline"
+          <Share2
             size={hp(2.2)}
             color={theme.colors.softBlack}
+            strokeWidth={2}
           />
         </TouchableOpacity>
         </View>
@@ -768,159 +857,77 @@ export default function Forum() {
 
   const handleScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-    {
-      useNativeDriver: true,
-      listener: (event) => {
-        const currentScrollY = event.nativeEvent.contentOffset.y
-        const scrollDifference = currentScrollY - lastScrollY.current
+    { useNativeDriver: true }
+  )
 
-        // Prevent multiple animations from running
-        if (isAnimating.current) {
-          lastScrollY.current = currentScrollY
-          return
-        }
+  const renderListHeader = () => (
+    <View style={styles.listHeader}>
+      {/* Forum Header */}
+      <View style={styles.customHeader}>
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => router.push('/profile')}
+          activeOpacity={0.6}
+        >
+          <Person size={hp(2.8)} color={theme.colors.textPrimary} strokeWidth={2} />
+        </TouchableOpacity>
 
-        // Ignore small scrolls
-        if (Math.abs(scrollDifference) < 3) {
-          return
-        }
+        <View style={styles.headerCenter}>
+          <ForumSwitcher
+            currentForum={currentForum}
+            onPress={() => setIsForumSelectorVisible(true)}
+            unreadCount={MOCK_FORUMS.reduce((sum, f) => sum + f.unreadCount, 0)}
+          />
+        </View>
 
-        if (currentScrollY <= 0) {
-          // At the very top - always show
-          isAnimating.current = true
-          Animated.timing(headerTranslateY, {
-            toValue: 0,
-            duration: 150,
-            useNativeDriver: true,
-          }).start(() => {
-            isAnimating.current = false
-          })
-        } else if (scrollDifference > 0) {
-          // Scrolling down - hide header
-          isAnimating.current = true
-          Animated.timing(headerTranslateY, {
-            toValue: -350,
-            duration: 150,
-            useNativeDriver: true,
-          }).start(() => {
-            isAnimating.current = false
-          })
-        } else if (scrollDifference < 0) {
-          // Scrolling up - show header
-          isAnimating.current = true
-          Animated.timing(headerTranslateY, {
-            toValue: 0,
-            duration: 150,
-            useNativeDriver: true,
-          }).start(() => {
-            isAnimating.current = false
-          })
-        }
+        <View style={styles.headerButton} />
+      </View>
 
-        lastScrollY.current = currentScrollY
-      },
-    }
+      {/* Tag Filter Bar */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tagFilterRow}
+      >
+        <Chip
+          label="All"
+          active={tagFilter === null}
+          onPress={() => setTagFilter(null)}
+          style={styles.tagFilterChip}
+        />
+        {['Housing', 'Advice', 'Events', 'Clubs', 'Random', 'Confessions', 'STEM', 'Need Help'].map(
+          (tag) => (
+            <Chip
+              key={tag}
+              label={tag}
+              active={tagFilter === tag}
+              onPress={() => setTagFilter(tagFilter === tag ? null : tag)}
+              style={styles.tagFilterChip}
+            />
+          )
+        )}
+      </ScrollView>
+
+      {/* Stories */}
+      <View style={styles.storiesWrapper}>
+        <LinearGradient
+          colors={['rgba(168, 85, 247, 0.08)', 'transparent']}
+          style={styles.storiesGradient}
+        >
+          <Stories
+            forumId={currentForumId}
+            onCreateStory={handleCreateStory}
+            onViewStory={handleViewStory}
+            currentUserId={currentUser.id}
+          />
+        </LinearGradient>
+      </View>
+    </View>
   )
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
-        <Animated.View
-          style={{
-            transform: [{ translateY: headerTranslateY }],
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 10,
-            backgroundColor: theme.colors.white,
-            paddingHorizontal: wp(4),
-          }}
-        >
-          {/* Custom Header with Forum Switcher */}
-          <View style={styles.customHeader}>
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => router.push('/profile')}
-              activeOpacity={0.6}
-            >
-              <Ionicons
-                name="person-circle-outline"
-                size={hp(2.8)}
-                color={theme.colors.textPrimary}
-              />
-            </TouchableOpacity>
-            
-            <View style={styles.headerCenter}>
-              <ForumSwitcher
-                currentForum={currentForum}
-                onPress={() => setIsForumSelectorVisible(true)}
-                unreadCount={MOCK_FORUMS.reduce((sum, f) => sum + f.unreadCount, 0)}
-              />
-            </View>
-            
-            <View style={styles.headerButton} />
-          </View>
-
-          {/* Removed forum title - cleaner look */}
-
-          {/* Create post/event buttons */}
-          <View style={styles.createPostRowContainer}>
-            <View style={styles.createPostRow}>
-              <PrimaryButton
-                label="New Post"
-                icon="create-outline"
-                onPress={() => setIsCreateModalVisible(true)}
-                style={styles.createButton}
-              />
-              <SecondaryButton
-                label="Create Event"
-                icon="calendar-outline"
-                onPress={() => setIsCreateEventModalVisible(true)}
-                style={styles.createButton}
-              />
-            </View>
-          </View>
-
-          {/* Filter Chips */}
-          <View style={styles.filterRow}>
-            <Chip
-              label="All"
-              active={filter === 'all'}
-              onPress={() => setFilter('all')}
-              style={styles.filterChip}
-            />
-            <Chip
-              label="Posts"
-              active={filter === 'posts'}
-              onPress={() => setFilter('posts')}
-              style={styles.filterChip}
-            />
-            <Chip
-              label="Events"
-              active={filter === 'events'}
-              onPress={() => setFilter('events')}
-              style={styles.filterChip}
-            />
-          </View>
-
-          {/* Stories row with purple gradient background */}
-          <View style={styles.storiesWrapper}>
-            <LinearGradient
-              colors={['rgba(168, 85, 247, 0.08)', 'transparent']}
-              style={styles.storiesGradient}
-            >
-              <Stories
-                forumId={currentForumId}
-                onCreateStory={handleCreateStory}
-                onViewStory={handleViewStory}
-                currentUserId={currentUser.id}
-              />
-            </LinearGradient>
-          </View>
-        </Animated.View>
-
-        {/* Posts list */}
         <AnimatedFlatList
           data={allPosts}
           keyExtractor={(item) => item.id || item.event?.id}
@@ -929,7 +936,17 @@ export default function Forum() {
           renderItem={renderPost}
           onScroll={handleScroll}
           scrollEventThrottle={16}
+          ListHeaderComponent={renderListHeader}
         />
+
+        {/* Create Post FAB */}
+        <TouchableOpacity
+          style={styles.createPostFAB}
+          onPress={() => setIsCreateModalVisible(true)}
+          activeOpacity={0.8}
+        >
+          <Add size={hp(2.5)} color={theme.colors.white} strokeWidth={2.5} />
+        </TouchableOpacity>
 
         {/* Post / Comments Modal Shell */}
         <Modal
@@ -954,10 +971,10 @@ export default function Forum() {
                       onPress={() => setActivePost(null)}
                       style={styles.modalCloseButton}
                     >
-                      <Ionicons
-                        name="close"
+                      <X
                         size={hp(2.6)}
                         color={theme.colors.charcoal}
+                        strokeWidth={2.5}
                       />
                     </TouchableOpacity>
                   </View>
@@ -987,15 +1004,87 @@ export default function Forum() {
 
                       <View style={styles.commentsHeader}>
                         <Text style={styles.commentsTitle}>Comments</Text>
-                        <Text style={styles.commentsCount}>
-                          {activePost.commentsCount} total
-                        </Text>
+                        <View style={styles.commentsHeaderRight}>
+                          <Text style={styles.commentsCount}>
+                            {activePost.commentsCount} total
+                          </Text>
+                          <View style={styles.sortButtons}>
+                            <TouchableOpacity
+                              style={[
+                                styles.sortButton,
+                                commentSort === 'best' && styles.sortButtonActive,
+                              ]}
+                              onPress={() => setCommentSort('best')}
+                            >
+                              <Text
+                                style={[
+                                  styles.sortButtonText,
+                                  commentSort === 'best' && styles.sortButtonTextActive,
+                                ]}
+                              >
+                                Best
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.sortButton,
+                                commentSort === 'new' && styles.sortButtonActive,
+                              ]}
+                              onPress={() => setCommentSort('new')}
+                            >
+                              <Text
+                                style={[
+                                  styles.sortButtonText,
+                                  commentSort === 'new' && styles.sortButtonTextActive,
+                                ]}
+                              >
+                                New
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.sortButton,
+                                commentSort === 'old' && styles.sortButtonActive,
+                              ]}
+                              onPress={() => setCommentSort('old')}
+                            >
+                              <Text
+                                style={[
+                                  styles.sortButtonText,
+                                  commentSort === 'old' && styles.sortButtonTextActive,
+                                ]}
+                              >
+                                Old
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
                       </View>
 
                       {/* Comments list */}
                       {comments[activePost.id] && comments[activePost.id].length > 0 ? (
                         <View style={styles.commentsList}>
-                          {comments[activePost.id].map((comment) => (
+                          {(() => {
+                            let sortedComments = [...comments[activePost.id]]
+                            if (commentSort === 'new') {
+                              sortedComments.sort((a, b) => {
+                                // Sort by timeAgo (newest first) - simplified
+                                return b.timeAgo.localeCompare(a.timeAgo)
+                              })
+                            } else if (commentSort === 'old') {
+                              sortedComments.sort((a, b) => {
+                                return a.timeAgo.localeCompare(b.timeAgo)
+                              })
+                            } else {
+                              // Best: sort by upvotes - downvotes
+                              sortedComments.sort((a, b) => {
+                                const scoreA = (a.upvotes || 0) - (a.downvotes || 0)
+                                const scoreB = (b.upvotes || 0) - (b.downvotes || 0)
+                                return scoreB - scoreA
+                              })
+                            }
+                            return sortedComments
+                          })().map((comment) => (
                             <View key={comment.id} style={styles.commentCard}>
                             <View style={styles.commentHeader}>
                               <View style={styles.commentAuthorRow}>
@@ -1043,10 +1132,11 @@ export default function Forum() {
                                     }))
                                   }}
                                 >
-                                  <Ionicons
-                                    name="arrow-up-circle-outline"
+                                  <ArrowUpCircle
                                     size={hp(2.2)}
                                     color={userVotes[comment.id] === 'up' ? '#2ecc71' : theme.colors.softBlack}
+                                    strokeWidth={2}
+                                    fill={userVotes[comment.id] === 'up' ? '#2ecc71' : 'none'}
                                   />
                                 </TouchableOpacity>
                                 <Text
@@ -1084,10 +1174,11 @@ export default function Forum() {
                                     }))
                                   }}
                                 >
-                                  <Ionicons
-                                    name="arrow-down-circle-outline"
+                                  <ArrowDownCircle
                                     size={hp(2.2)}
                                     color={userVotes[comment.id] === 'down' ? '#e74c3c' : theme.colors.softBlack}
+                                    strokeWidth={2}
+                                    fill={userVotes[comment.id] === 'down' ? '#e74c3c' : 'none'}
                                   />
                                 </TouchableOpacity>
                               </View>
@@ -1096,10 +1187,10 @@ export default function Forum() {
                                 activeOpacity={0.7}
                                 onPress={() => setReplyingTo(comment.id)}
                               >
-                                <Ionicons
-                                  name="return-down-forward-outline"
+                                <MessageCircle
                                   size={hp(1.8)}
                                   color={theme.colors.softBlack}
+                                  strokeWidth={2}
                                   style={{ marginRight: wp(1) }}
                                 />
                                 <Text style={styles.replyButtonText}>Reply</Text>
@@ -1164,10 +1255,11 @@ export default function Forum() {
                                             }))
                                           }}
                                         >
-                                          <Ionicons
-                                            name="arrow-up-circle-outline"
+                                          <ArrowUpCircle
                                             size={hp(1.8)}
                                             color={userVotes[`${comment.id}-${reply.id}`] === 'up' ? '#2ecc71' : theme.colors.softBlack}
+                                            strokeWidth={2}
+                                            fill={userVotes[`${comment.id}-${reply.id}`] === 'up' ? '#2ecc71' : 'none'}
                                           />
                                         </TouchableOpacity>
                                         <Text
@@ -1213,10 +1305,11 @@ export default function Forum() {
                                             }))
                                           }}
                                         >
-                                          <Ionicons
-                                            name="arrow-down-circle-outline"
+                                          <ArrowDownCircle
                                             size={hp(1.8)}
                                             color={userVotes[`${comment.id}-${reply.id}`] === 'down' ? '#e74c3c' : theme.colors.softBlack}
+                                            strokeWidth={2}
+                                            fill={userVotes[`${comment.id}-${reply.id}`] === 'down' ? '#e74c3c' : 'none'}
                                           />
                                         </TouchableOpacity>
                                       </View>
@@ -1246,12 +1339,21 @@ export default function Forum() {
                                     activeOpacity={0.8}
                                     onPress={() => setReplyIsAnon((prev) => !prev)}
                                   >
-                                    <Ionicons
-                                      name={replyIsAnon ? 'eye-off-outline' : 'person-outline'}
-                                      size={hp(1.6)}
-                                      color={replyIsAnon ? theme.colors.white : theme.colors.bondedPurple}
-                                      style={{ marginRight: wp(1) }}
-                                    />
+                                    {replyIsAnon ? (
+                                      <EyeOff
+                                        size={hp(1.6)}
+                                        color={theme.colors.white}
+                                        strokeWidth={2}
+                                        style={{ marginRight: wp(1) }}
+                                      />
+                                    ) : (
+                                      <Person
+                                        size={hp(1.6)}
+                                        color={theme.colors.bondedPurple}
+                                        strokeWidth={2}
+                                        style={{ marginRight: wp(1) }}
+                                      />
+                                    )}
                                     <Text
                                       style={[
                                         styles.anonPillTextSmall,
@@ -1340,12 +1442,21 @@ export default function Forum() {
                         activeOpacity={0.8}
                         onPress={() => setNewCommentIsAnon((prev) => !prev)}
                       >
-                        <Ionicons
-                          name={newCommentIsAnon ? 'eye-off-outline' : 'person-outline'}
-                          size={hp(1.6)}
-                          color={newCommentIsAnon ? theme.colors.white : theme.colors.bondedPurple}
-                          style={{ marginRight: wp(1) }}
-                        />
+                        {newCommentIsAnon ? (
+                          <EyeOff
+                            size={hp(1.6)}
+                            color={theme.colors.white}
+                            strokeWidth={2}
+                            style={{ marginRight: wp(1) }}
+                          />
+                        ) : (
+                          <Person
+                            size={hp(1.6)}
+                            color={theme.colors.bondedPurple}
+                            strokeWidth={2}
+                            style={{ marginRight: wp(1) }}
+                          />
+                        )}
                         <Text
                           style={[
                             styles.anonPillTextSmall,
@@ -1432,10 +1543,10 @@ export default function Forum() {
                       onPress={() => setActiveAuthorPost(null)}
                       style={styles.modalCloseButton}
                     >
-                      <Ionicons
-                        name="close"
+                      <X
                         size={hp(2.6)}
                         color={theme.colors.charcoal}
+                        strokeWidth={2.5}
                       />
                     </TouchableOpacity>
                   </View>
@@ -1451,10 +1562,10 @@ export default function Forum() {
 
                     <View style={styles.profileMetaRow}>
                       <View style={styles.profileMetaPill}>
-                        <Ionicons
-                          name="chatbubble-outline"
+                        <MessageCircle
                           size={hp(1.8)}
                           color={theme.colors.bondedPurple}
+                          strokeWidth={2}
                           style={{ marginRight: wp(1) }}
                         />
                         <Text style={styles.profileMetaPillText}>
@@ -1471,6 +1582,14 @@ export default function Forum() {
                     </View>
 
                     <View style={styles.profileActions}>
+                      <AnonymousMessageButton
+                        userId={activeAuthorPost.authorId || 'user-123'}
+                        userName={activeAuthorPost.isAnon ? 'Anonymous' : activeAuthorPost.author}
+                        onSendMessage={async (messageData) => {
+                          // TODO: Implement actual anonymous message sending
+                          console.log('Sending anonymous message:', messageData)
+                        }}
+                      />
                       <TouchableOpacity
                         style={[
                           styles.profileButton,
@@ -1478,10 +1597,10 @@ export default function Forum() {
                         ]}
                         activeOpacity={0.8}
                       >
-                        <Ionicons
-                          name="person-add-outline"
+                        <Person
                           size={hp(2)}
                           color={theme.colors.white}
+                          strokeWidth={2}
                           style={{ marginRight: wp(1.5) }}
                         />
                         <Text style={styles.profilePrimaryText}>Connect</Text>
@@ -1494,189 +1613,271 @@ export default function Forum() {
           </Pressable>
         </Modal>
 
-        {/* New Post Modal */}
+        {/* New Post Modal - Fizz Style */}
         <Modal
           visible={isCreateModalVisible}
-          transparent
+          transparent={false}
           animationType="slide"
           onRequestClose={() => setIsCreateModalVisible(false)}
         >
-          <Pressable
-            style={styles.modalOverlay}
-            onPress={() => setIsCreateModalVisible(false)}
-          >
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-              <View style={styles.postModalContent}>
-                <View style={styles.postModalHeader}>
-                  <TouchableOpacity
-                    onPress={() => setIsCreateModalVisible(false)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.composeCancelText}>Cancel</Text>
-                  </TouchableOpacity>
+          <SafeAreaView style={styles.fizzModalSafeArea} edges={['top', 'left', 'right']}>
+            <KeyboardAvoidingView
+              style={styles.fizzModalContainer}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+            >
+              {/* Header */}
+              <View style={styles.fizzModalHeader}>
+                <TouchableOpacity
+                  onPress={() => setIsCreateModalVisible(false)}
+                  activeOpacity={0.8}
+                  style={styles.fizzHeaderButton}
+                >
+                  <X size={hp(2.5)} color={theme.colors.white} strokeWidth={2.5} />
+                </TouchableOpacity>
 
-                  <TouchableOpacity
-                    activeOpacity={0.9}
-                    onPress={() => {
-                      if (!draftBody.trim() && !draftTitle.trim()) {
-                        setIsCreateModalVisible(false)
-                        return
-                      }
-
-                      const newPost = {
-                        id: `post-${Date.now()}`,
-                        author: draftIsAnon ? 'Anon' : 'You',
-                        isAnon: draftIsAnon,
-                        title: draftTitle.trim() || 'Untitled post',
-                        body:
-                          draftBody.trim() ||
-                          'Started a new thread. Details coming soon.',
-                        forum: 'Main Forum',
-                        upvotes: 0,
-                        commentsCount: 0,
-                        timeAgo: 'now',
-                        media: draftMedia,
-                      }
-
-                      setPosts((prev) => [newPost, ...prev])
-                      setDraftTitle('')
-                      setDraftBody('')
-                      setDraftIsAnon(true)
-                      setDraftMedia([])
-                      setIsCreateModalVisible(false)
-                    }}
-                    style={styles.composePostButton}
-                  >
-                    <Text style={styles.composePostButtonText}>Post</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.composeBody}>
-                  <TextInput
-                    value={draftTitle}
-                    onChangeText={setDraftTitle}
-                    placeholder="Post title (optional)"
-                    placeholderTextColor={theme.colors.softBlack}
-                    style={styles.composeTitleInput}
-                  />
-                  <TextInput
-                    value={draftBody}
-                    onChangeText={setDraftBody}
-                    placeholder="What's happening on campus?"
-                    placeholderTextColor={theme.colors.softBlack}
-                    style={styles.composeInput}
-                    multiline
-                    textAlignVertical="top"
-                  />
-                </View>
-
-                <View style={styles.composeToolbar}>
-                  <View style={styles.mediaRow}>
-                    <TouchableOpacity
-                      style={styles.mediaButton}
-                      activeOpacity={0.8}
-                      onPress={() => handlePickMedia('image')}
-                    >
-                      <Ionicons
-                        name="image-outline"
-                        size={hp(2.2)}
-                        color={theme.colors.bondedPurple}
-                        style={{ marginRight: wp(1.2) }}
-                      />
-                      <Text style={styles.mediaButtonText}>Photo</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.mediaButton}
-                      activeOpacity={0.8}
-                      onPress={() => handlePickMedia('video')}
-                    >
-                      <Ionicons
-                        name="videocam-outline"
-                        size={hp(2.2)}
-                        color={theme.colors.bondedPurple}
-                        style={{ marginRight: wp(1.2) }}
-                      />
-                      <Text style={styles.mediaButtonText}>Video</Text>
-                    </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setShowPostAsModal(true)}
+                  activeOpacity={0.8}
+                  style={styles.fizzHeaderCenter}
+                >
+                  <View style={styles.fizzAnonymousRow}>
+                    <View style={styles.fizzAnonymousIcon}>
+                      <Person size={hp(2)} color={theme.colors.white} strokeWidth={2.5} />
+                    </View>
+                    <Text style={styles.fizzAnonymousText}>Anonymous</Text>
+                    <ChevronDown size={hp(1.8)} color={theme.colors.white} strokeWidth={2.5} />
                   </View>
+                  <Text style={styles.fizzLocationText}>{draftLocation}</Text>
+                </TouchableOpacity>
 
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    if (!draftBody.trim()) {
+                      setIsCreateModalVisible(false)
+                      return
+                    }
+
+                    const newPost = {
+                      id: `post-${Date.now()}`,
+                      author: draftIsAnon ? 'Anon' : 'You',
+                      isAnon: draftIsAnon,
+                      title: draftTitle.trim() || '',
+                      body: draftBody.trim(),
+                      forum: 'Main Forum',
+                      upvotes: 0,
+                      commentsCount: 0,
+                      timeAgo: 'now',
+                      media: draftMedia,
+                      tags: selectedTag ? [selectedTag] : [],
+                      repostsCount: 0,
+                    }
+
+                    setPosts((prev) => [newPost, ...prev])
+                    setDraftTitle('')
+                    setDraftBody('')
+                    setDraftIsAnon(true)
+                    setDraftMedia([])
+                    setSelectedTag(null)
+                    setIsCreateModalVisible(false)
+                  }}
+                  style={styles.fizzPostButton}
+                >
+                  <Text style={styles.fizzPostButtonText}>Post</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Content Area - Dark Mode */}
+              <View style={styles.fizzContentArea}>
+                <TextInput
+                  value={draftBody}
+                  onChangeText={setDraftBody}
+                  placeholder="Share what's really on your mind..."
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={styles.fizzTextInput}
+                  multiline
+                  textAlignVertical="top"
+                  autoFocus
+                />
+              </View>
+
+              {/* Action Bar - Above Keyboard */}
+              <View style={styles.fizzActionBar}>
+                <TouchableOpacity
+                  style={styles.fizzTagButton}
+                  onPress={() => setShowTagSelector(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.fizzTagButtonText}>+ Tag</Text>
+                </TouchableOpacity>
+
+                <View style={styles.fizzMediaIconsRow}>
                   <TouchableOpacity
-                    style={[
-                      styles.mediaButton,
-                      draftIsAnon ? styles.anonPillActive : styles.anonPill,
-                    ]}
-                    activeOpacity={0.8}
-                    onPress={() => setDraftIsAnon((prev) => !prev)}
+                    style={styles.fizzMediaIcon}
+                    onPress={() => handlePickMedia('image')}
+                    activeOpacity={0.7}
                   >
-                    <Ionicons
-                      name={draftIsAnon ? 'eye-off-outline' : 'person-outline'}
-                      size={hp(2)}
-                      color={
-                        draftIsAnon
-                          ? theme.colors.white
-                          : theme.colors.bondedPurple
-                      }
-                      style={{ marginRight: wp(1.2) }}
-                    />
-                    <Text
-                      style={[
-                        styles.mediaButtonText,
-                        draftIsAnon && { color: theme.colors.white },
-                      ]}
-                    >
-                      {draftIsAnon ? 'Anon' : 'With name'}
-                    </Text>
+                    <ImageIcon size={hp(2.5)} color={theme.colors.white} strokeWidth={2} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.fizzMediaIcon}
+                    onPress={() => handlePickMedia('video')}
+                    activeOpacity={0.7}
+                  >
+                    <Video size={hp(2.5)} color={theme.colors.white} strokeWidth={2} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.fizzMediaIcon}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.fizzMemeText}>MEME</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.fizzMediaIcon}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.fizzGifText}>GIF</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
 
-                {draftMedia.length > 0 && (
-                  <View style={styles.mediaAttachedRow}>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                    >
-                      {draftMedia.map((asset, index) => (
-                        <View
-                          key={`${asset.uri}-${index}`}
-                          style={styles.draftMediaItem}
-                        >
-                          {asset.type === 'image' ? (
-                            <Image
-                              source={{ uri: asset.uri }}
-                              style={styles.draftMediaImage}
-                            />
-                          ) : (
-                            <View style={styles.draftMediaVideo}>
-                              <Ionicons
-                                name="videocam-outline"
-                                size={hp(2.5)}
-                                color={theme.colors.white}
-                              />
-                            </View>
-                          )}
-                          <TouchableOpacity
-                            style={styles.draftMediaRemove}
-                            activeOpacity={0.8}
-                            onPress={() => {
-                              setDraftMedia((prev) =>
-                                prev.filter((_, i) => i !== index)
-                              )
-                            }}
-                          >
-                            <Ionicons
-                              name="close-circle"
-                              size={hp(2.2)}
-                              color={theme.colors.charcoal}
-                            />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </ScrollView>
+              {/* Selected Tag Display */}
+              {selectedTag && (
+                <View style={styles.fizzSelectedTag}>
+                  <Text style={styles.fizzSelectedTagText}>{selectedTag}</Text>
+                  <TouchableOpacity
+                    onPress={() => setSelectedTag(null)}
+                    activeOpacity={0.8}
+                  >
+                    <X size={hp(1.8)} color={theme.colors.white} strokeWidth={2.5} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </KeyboardAvoidingView>
+          </SafeAreaView>
+        </Modal>
+
+        {/* Tag Selector Modal - Fizz Style */}
+        <Modal
+          visible={showTagSelector}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowTagSelector(false)}
+        >
+          <Pressable
+            style={styles.tagModalOverlay}
+            onPress={() => setShowTagSelector(false)}
+          >
+            <View style={styles.tagModalContent}>
+              <View style={styles.tagModalHeader}>
+                <Text style={styles.tagModalTitle}>Select Tag</Text>
+                <TouchableOpacity
+                  onPress={() => setShowTagSelector(false)}
+                  activeOpacity={0.8}
+                >
+                  <X size={hp(2.5)} color={theme.colors.white} strokeWidth={2.5} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.tagList} contentContainerStyle={styles.tagListContent}>
+                {[
+                  { label: 'QUESTION', color: '#007AFF' },
+                  { label: 'CONFESSION', color: '#FF6B6B' },
+                  { label: 'CRUSH', color: '#FF69B4' },
+                  { label: 'DM ME', color: '#00CED1' },
+                  { label: 'EVENT', color: '#FF9500' },
+                  { label: 'PSA', color: '#FF3B30' },
+                  { label: 'SHOUTOUT', color: '#34C759' },
+                  { label: 'DUB', color: '#FFD700' },
+                  { label: 'RIP', color: '#808080' },
+                  { label: 'MEME', color: '#A45CFF' },
+                  { label: 'LOST & FOUND', color: '#D2691E' },
+                ].map((tag) => (
+                  <TouchableOpacity
+                    key={tag.label}
+                    style={[styles.fizzTagPill, { backgroundColor: tag.color }]}
+                    onPress={() => {
+                      setSelectedTag(tag.label)
+                      setShowTagSelector(false)
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.fizzTagPillText}>{tag.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </Pressable>
+        </Modal>
+
+        {/* Post As Modal - Fizz Style */}
+        <Modal
+          visible={showPostAsModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowPostAsModal(false)}
+        >
+          <Pressable
+            style={styles.postAsModalOverlay}
+            onPress={() => setShowPostAsModal(false)}
+          >
+            <View style={styles.postAsModalContent}>
+              <View style={styles.postAsModalHandle} />
+              <Text style={styles.postAsModalTitle}>Post as</Text>
+              
+              {/* Location Option */}
+              <TouchableOpacity
+                style={styles.postAsOption}
+                activeOpacity={0.8}
+              >
+                <View style={styles.postAsIcon}>
+                  <MapPin size={hp(2)} color={theme.colors.white} strokeWidth={2.5} />
+                </View>
+                <View style={styles.postAsOptionText}>
+                  <Text style={styles.postAsOptionTitle}>{draftLocation}</Text>
+                  <Text style={styles.postAsOptionSubtitle}>Not accurate? Update location</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Anonymous Option */}
+              <TouchableOpacity
+                style={styles.postAsOption}
+                activeOpacity={0.8}
+                onPress={() => {
+                  setDraftIsAnon(true)
+                  setShowPostAsModal(false)
+                }}
+              >
+                <View style={styles.postAsIcon}>
+                  <Person size={hp(2)} color={theme.colors.white} strokeWidth={2.5} />
+                </View>
+                <View style={styles.postAsOptionText}>
+                  <Text style={styles.postAsOptionTitle}>Anonymous</Text>
+                </View>
+                {draftIsAnon && (
+                  <View style={styles.postAsCheck}>
+                    <Check size={hp(2)} color={theme.colors.white} strokeWidth={2.5} />
                   </View>
                 )}
-              </View>
-            </TouchableWithoutFeedback>
+              </TouchableOpacity>
+
+              {/* Create Handle Option */}
+              <TouchableOpacity
+                style={styles.postAsOption}
+                activeOpacity={0.8}
+                onPress={() => {
+                  setDraftIsAnon(false)
+                  setShowPostAsModal(false)
+                }}
+              >
+                <View style={styles.postAsIcon}>
+                  <Add size={hp(2)} color={theme.colors.white} strokeWidth={2.5} />
+                </View>
+                <View style={styles.postAsOptionText}>
+                  <Text style={styles.postAsOptionTitle}>Create a handle</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
           </Pressable>
         </Modal>
 
@@ -1710,11 +1911,6 @@ export default function Forum() {
           }}
         />
 
-        <CreateEventModal
-          visible={isCreateEventModalVisible}
-          onClose={() => setIsCreateEventModalVisible(false)}
-          forumId={currentForumId}
-        />
 
         <BottomNav scrollY={scrollY} />
 
@@ -1731,6 +1927,29 @@ export default function Forum() {
           onCreateForum={() => {
             router.push('/create-forum')
           }}
+        />
+
+        {/* Repost Modal */}
+        <RepostModal
+          visible={showRepostModal}
+          post={repostPost}
+          onClose={() => {
+            setShowRepostModal(false)
+            setRepostPost(null)
+          }}
+          onRepost={(repostData) => {
+            // Update post repost count
+            setPosts((prev) =>
+              prev.map((p) =>
+                p.id === repostData.postId
+                  ? { ...p, repostsCount: (p.repostsCount || 0) + 1 }
+                  : p
+              )
+            )
+            // TODO: Save repost to backend
+            console.log('Reposting:', repostData)
+          }}
+          groups={[]} // TODO: Get user's groups
         />
       </View>
     </SafeAreaView>
@@ -1908,20 +2127,24 @@ const styles = StyleSheet.create({
     color: theme.colors.softBlack,
     fontFamily: theme.typography.fontFamily.body,
   },
+  listHeader: {
+    paddingTop: hp(1),
+    paddingBottom: hp(2),
+  },
   postsList: {
-    paddingTop: hp(40), // Account for header (hp(5.5)) + spacing + buttons + stories (~hp(13)) + margin + extra buffer
     paddingBottom: hp(10),
     paddingHorizontal: 0,
   },
   postCard: {
     marginHorizontal: wp(4),
-    marginBottom: hp(2),
+    marginBottom: hp(3), // Increased spacing
+    paddingVertical: hp(2), // Increased padding
   },
   postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: hp(1),
+    marginBottom: hp(1.5), // Increased spacing
   },
   postAuthorRow: {
     flexDirection: 'row',
@@ -1930,17 +2153,17 @@ const styles = StyleSheet.create({
     marginRight: wp(2),
   },
   postAvatar: {
-    width: hp(4),
-    height: hp(4),
-    borderRadius: hp(2),
+    width: hp(5.5), // Increased size
+    height: hp(5.5), // Increased size
+    borderRadius: hp(2.75),
     backgroundColor: theme.colors.bondedPurple,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: wp(2.5),
+    marginRight: wp(3), // Increased spacing
     opacity: 0.15,
   },
   postAvatarText: {
-    fontSize: hp(1.9),
+    fontSize: hp(2.3), // Increased size
     color: theme.colors.bondedPurple,
     fontFamily: theme.typography.fontFamily.heading,
     fontWeight: '700',
@@ -1949,35 +2172,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   postAuthorName: {
-    fontSize: hp(1.7),
+    fontSize: hp(2), // Increased size
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '600', // Slightly lighter for modern look
+    fontWeight: '600',
   },
   postMetaText: {
-    fontSize: hp(1.35),
+    fontSize: hp(1.5), // Increased size
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
-    marginTop: hp(0.1),
+    marginTop: hp(0.2),
     fontWeight: '400',
   },
   postBody: {
-    marginBottom: hp(1),
+    marginBottom: hp(1.5), // Increased spacing
   },
   postTitle: {
-    fontSize: hp(1.8),
-    fontWeight: '600',
+    fontSize: hp(2.2), // Increased size
+    fontWeight: '700', // Bolder
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.heading,
-    marginBottom: hp(0.8),
-    lineHeight: hp(2.2),
+    marginBottom: hp(1), // Increased spacing
+    lineHeight: hp(2.8), // Increased line height
   },
   postBodyText: {
-    fontSize: hp(1.65),
+    fontSize: hp(1.9), // Increased size
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.body,
-    lineHeight: hp(2.4),
-    marginTop: hp(0.3),
+    lineHeight: hp(2.8), // Increased line height
+    marginTop: hp(0.5),
   },
   postMediaPreview: {
     marginTop: hp(1.2),
@@ -1988,12 +2211,12 @@ const styles = StyleSheet.create({
   },
   postMediaImage: {
     width: '100%',
-    height: hp(18),
+    height: hp(35), // Increased size (Instagram/Fizz style)
     resizeMode: 'cover',
   },
   postMediaVideo: {
     width: '100%',
-    height: hp(18),
+    height: hp(35), // Increased size
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.charcoal,
@@ -2008,8 +2231,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: hp(1.2),
-    paddingTop: hp(1),
+    marginTop: hp(1.5), // Increased spacing
+    paddingTop: hp(1.2),
   },
   postVotesRow: {
     flexDirection: 'row',
@@ -2021,10 +2244,10 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
   },
   postVoteCount: {
-    fontSize: hp(1.5),
+    fontSize: hp(1.7), // Increased size
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '500',
+    fontWeight: '600', // Bolder
     minWidth: wp(6),
     textAlign: 'center',
   },
@@ -2042,10 +2265,30 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
   },
   postCommentsText: {
-    fontSize: hp(1.5),
+    fontSize: hp(1.7), // Increased size
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '400',
+    fontWeight: '500', // Slightly bolder
+  },
+  createPostFAB: {
+    position: 'absolute',
+    bottom: hp(12), // Above BottomNav
+    right: wp(4),
+    width: hp(6),
+    height: hp(6),
+    borderRadius: hp(3),
+    backgroundColor: theme.colors.bondedPurple,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
   },
   modalOverlay: {
     flex: 1,
@@ -2075,11 +2318,343 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  createModalSafeArea: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+  createModalContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+  fizzModalSafeArea: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  fizzModalContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  fizzModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: wp(4),
+    paddingTop: hp(1), // Reduced since SafeAreaView handles top inset
+    paddingBottom: hp(1.5),
+  },
+  fizzHeaderButton: {
+    width: hp(4),
+    height: hp(4),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fizzHeaderCenter: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: wp(4),
+  },
+  fizzAnonymousRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(1.5),
+  },
+  fizzAnonymousIcon: {
+    width: hp(3),
+    height: hp(3),
+    borderRadius: hp(1.5),
+    backgroundColor: theme.colors.bondedPurple,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fizzAnonymousText: {
+    fontSize: hp(1.8),
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  fizzLocationText: {
+    fontSize: hp(1.4),
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textSecondary,
+    marginTop: hp(0.3),
+  },
+  fizzPostButton: {
+    paddingHorizontal: wp(5),
+    paddingVertical: hp(0.8),
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.white,
+  },
+  fizzPostButtonText: {
+    fontSize: hp(1.6),
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  fizzContentArea: {
+    flex: 1,
+    paddingHorizontal: wp(4),
+    paddingTop: hp(2),
+  },
+  fizzTextInput: {
+    flex: 1,
+    fontSize: hp(2),
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.white,
+    minHeight: hp(40),
+  },
+  fizzActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(1.5),
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  fizzTagButton: {
+    paddingVertical: hp(0.8),
+    paddingHorizontal: wp(3),
+    borderRadius: theme.radius.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  fizzTagButtonText: {
+    fontSize: hp(1.5),
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  fizzMediaIconsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(3),
+  },
+  fizzMediaIcon: {
+    width: hp(4),
+    height: hp(4),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fizzMemeText: {
+    fontSize: hp(1.3),
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  fizzGifText: {
+    fontSize: hp(1.3),
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  fizzSelectedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(1),
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    gap: wp(2),
+  },
+  fizzSelectedTagText: {
+    fontSize: hp(1.5),
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  tagModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tagModalContent: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: '#1a1a1a',
+    borderRadius: theme.radius.xl,
+    padding: wp(4),
+  },
+  tagModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: hp(2),
+  },
+  tagModalTitle: {
+    fontSize: hp(2),
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: '700',
+    color: theme.colors.white,
+  },
+  tagList: {
+    maxHeight: hp(50),
+  },
+  tagListContent: {
+    gap: hp(1.5),
+  },
+  fizzTagPill: {
+    paddingVertical: hp(1.2),
+    paddingHorizontal: wp(4),
+    borderRadius: theme.radius.pill,
+    alignItems: 'center',
+  },
+  fizzTagPillText: {
+    fontSize: hp(1.6),
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '700',
+    color: theme.colors.white,
+  },
+  postAsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  postAsModalContent: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: theme.radius.xl,
+    borderTopRightRadius: theme.radius.xl,
+    paddingBottom: hp(4),
+  },
+  postAsModalHandle: {
+    width: wp(12),
+    height: hp(0.5),
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: theme.radius.pill,
+    alignSelf: 'center',
+    marginTop: hp(1),
+    marginBottom: hp(2),
+  },
+  postAsModalTitle: {
+    fontSize: hp(2),
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: '700',
+    color: theme.colors.white,
+    paddingHorizontal: wp(4),
+    marginBottom: hp(2),
+  },
+  postAsOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(2),
+    gap: wp(3),
+  },
+  postAsIcon: {
+    width: hp(4),
+    height: hp(4),
+    borderRadius: hp(2),
+    backgroundColor: theme.colors.bondedPurple,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postAsOptionText: {
+    flex: 1,
+  },
+  postAsOptionTitle: {
+    fontSize: hp(1.8),
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: '600',
+    color: theme.colors.white,
+  },
+  postAsOptionSubtitle: {
+    fontSize: hp(1.4),
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textSecondary,
+    marginTop: hp(0.3),
+  },
+  postAsCheck: {
+    width: hp(3),
+    height: hp(3),
+    borderRadius: hp(1.5),
+    backgroundColor: theme.colors.bondedPurple,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   postModalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(1.5),
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.offWhite,
+  },
+  postModalHeaderTitle: {
+    fontSize: hp(2),
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: '700',
+    color: theme.colors.charcoal,
+  },
+  mediaIconsRow: {
+    flexDirection: 'row',
+    gap: wp(3),
+    paddingHorizontal: wp(4),
+    paddingBottom: hp(2),
+  },
+  mediaIconButton: {
+    padding: hp(1),
+  },
+  tagPollToggleRow: {
+    flexDirection: 'row',
+    gap: wp(2),
+    paddingHorizontal: wp(4),
+    marginTop: hp(1),
     marginBottom: hp(1),
+  },
+  tagPollToggleButton: {
+    width: hp(4),
+    height: hp(4),
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.bondedPurple,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tagPollToggleButtonActive: {
+    backgroundColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.bondedPurple,
+  },
+  tagsSection: {
+    paddingHorizontal: wp(4),
+    marginTop: hp(1),
+    marginBottom: hp(2),
+  },
+  sectionTitle: {
+    fontSize: hp(1.6),
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+    color: theme.colors.charcoal,
+    marginBottom: hp(1.5),
+  },
+  pollSection: {
+    paddingHorizontal: wp(4),
+    marginTop: hp(1),
+    marginBottom: hp(2),
+  },
+  composeFooter: {
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(2),
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.offWhite,
+    backgroundColor: theme.colors.white,
+  },
+  postFooterButton: {
+    width: '100%',
+    paddingVertical: hp(1.8),
+    borderRadius: theme.radius.xl,
+    backgroundColor: theme.colors.offWhite,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postFooterButtonDisabled: {
+    opacity: 0.5,
+  },
+  postFooterButtonText: {
+    fontSize: hp(1.8),
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '700',
+    color: theme.colors.charcoal,
   },
   postModalTitle: {
     flex: 1,
@@ -2637,25 +3212,61 @@ const styles = StyleSheet.create({
   },
   composeBody: {
     flex: 1,
+    maxHeight: hp(50),
+  },
+  optionalFeaturesRow: {
+    flexDirection: 'row',
+    gap: wp(2),
     marginTop: hp(1.5),
-    marginBottom: hp(1.5),
+    marginBottom: hp(1),
+  },
+  optionalFeatureButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp(1),
+    paddingHorizontal: wp(3),
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1.5,
+    borderColor: theme.colors.bondedPurple,
+    gap: wp(1.5),
+  },
+  optionalFeatureButtonActive: {
+    backgroundColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.bondedPurple,
+  },
+  optionalFeatureButtonText: {
+    fontSize: hp(1.5),
+    color: theme.colors.bondedPurple,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+  },
+  optionalFeatureButtonTextActive: {
+    color: theme.colors.white,
+  },
+  collapsibleSection: {
+    marginTop: hp(1),
+    marginBottom: hp(1),
   },
   composeTitleInput: {
-    fontSize: hp(2),
-    fontWeight: '600',
+    fontSize: hp(1.8),
+    fontWeight: '500',
     color: theme.colors.charcoal,
-    fontFamily: theme.typography.fontFamily.heading,
-    marginBottom: hp(1),
-    paddingBottom: hp(0.5),
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.offWhite,
+    fontFamily: theme.typography.fontFamily.body,
+    marginBottom: hp(1.5),
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(1),
   },
   composeInput: {
     flex: 1,
-    fontSize: hp(1.9),
+    fontSize: hp(1.8),
     color: theme.colors.charcoal,
     fontFamily: theme.typography.fontFamily.body,
-    lineHeight: hp(2.6),
+    lineHeight: hp(2.4),
+    paddingHorizontal: wp(4),
+    minHeight: hp(15),
   },
   composeToolbar: {
     flexDirection: 'row',
@@ -2718,6 +3329,77 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -hp(0.8),
     right: -hp(0.8),
+  },
+  tagFilterRow: {
+    paddingHorizontal: wp(4),
+    paddingBottom: hp(0.5),
+    gap: wp(2),
+  },
+  tagFilterChip: {
+    marginRight: wp(2),
+  },
+  postRepostButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(1),
+    padding: hp(0.8),
+    borderRadius: theme.radius.full,
+  },
+  repostCount: {
+    fontSize: hp(1.3),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+  },
+  pollSection: {
+    marginTop: hp(1),
+  },
+  addPollButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp(1.2),
+    paddingHorizontal: wp(4),
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.offWhite,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderStyle: 'dashed',
+    gap: wp(1.5),
+  },
+  addPollText: {
+    fontSize: hp(1.6),
+    color: theme.colors.bondedPurple,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+  },
+  commentsHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(2),
+  },
+  sortButtons: {
+    flexDirection: 'row',
+    gap: wp(1),
+    marginLeft: wp(2),
+  },
+  sortButton: {
+    paddingHorizontal: wp(2.5),
+    paddingVertical: hp(0.5),
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.offWhite,
+  },
+  sortButtonActive: {
+    backgroundColor: theme.colors.bondedPurple,
+  },
+  sortButtonText: {
+    fontSize: hp(1.3),
+    color: theme.colors.softBlack,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '500',
+  },
+  sortButtonTextActive: {
+    color: theme.colors.white,
+    fontWeight: '600',
   },
 })
 
