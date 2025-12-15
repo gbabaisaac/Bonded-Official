@@ -119,44 +119,12 @@ export default function Home() {
         
         <div className="max-w-7xl mx-auto w-full relative z-10">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-            {/* Left Side - Headline and Form */}
-            <div className="flex flex-col justify-center">
-              <motion.h1
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-                className="text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-semibold text-gray-900 mb-8 leading-[1.1] tracking-tight"
-              >
-                The connection network
-                <br />
-                for college students.
-              </motion.h1>
-
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                className="mb-6"
-              >
-                <WaitlistForm variant="hero" />
-              </motion.div>
-
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.4 }}
-                className="text-base text-gray-500"
-              >
-                <span className="text-purple-600 font-medium">Live at University of Rhode Island</span> • Coming to more campuses soon
-              </motion.p>
-            </div>
-
-            {/* Right Side - Drawer Image */}
+            {/* Phone First on Mobile, Right Side on Desktop */}
             <motion.div
               initial={{ opacity: 0, x: 30, scale: 0.95 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
-              transition={{ duration: 1, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-              className="flex items-center justify-center lg:justify-end relative z-10"
+              transition={{ duration: 1, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+              className="flex items-center justify-center lg:justify-end relative z-10 order-1 lg:order-2"
             >
               {/* Purple glow effect */}
               <div className="absolute inset-0 bg-purple-200/30 blur-3xl -z-10 scale-150" />
@@ -173,6 +141,38 @@ export default function Home() {
                 />
               </motion.div>
             </motion.div>
+
+            {/* Form Second on Mobile, Left Side on Desktop */}
+            <div className="flex flex-col justify-center order-2 lg:order-1">
+              <motion.h1
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                className="text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-semibold text-gray-900 mb-8 leading-[1.1] tracking-tight"
+              >
+                The connection network
+                <br />
+                for college students.
+              </motion.h1>
+
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
+                className="mb-6"
+              >
+                <WaitlistForm variant="hero" />
+              </motion.div>
+
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.8, delay: 0.6 }}
+                className="text-base text-gray-500"
+              >
+                <span className="text-purple-600 font-medium">Live at University of Rhode Island</span> • Coming to more campuses soon
+              </motion.p>
+            </div>
           </div>
         </div>
       </section>
