@@ -21,6 +21,14 @@ export async function POST(request: Request) {
       )
     }
 
+    // Check if Supabase is available
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Waitlist service is temporarily unavailable. Please try again later.' },
+        { status: 503 }
+      )
+    }
+
     const { data, error } = await supabase
       .from('waitlist')
       .insert([
