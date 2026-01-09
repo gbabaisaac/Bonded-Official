@@ -1,31 +1,29 @@
-import React, { useState, useMemo } from 'react'
+import DateTimePicker from '@react-native-community/datetimepicker'
+import { useRouter } from 'expo-router'
+import React, { useMemo, useState } from 'react'
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
-  Modal,
-  TextInput,
-  Switch,
-  Alert,
-  Image,
+    Alert,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useRouter } from 'expo-router'
-import DateTimePicker from '@react-native-community/datetimepicker'
-import { hp, wp } from '../helpers/common'
 import AppTopBar from '../components/AppTopBar'
-import { useAppTheme } from './theme'
-import ThemedView from './components/ThemedView'
-import ThemedText from './components/ThemedText'
 import BottomNav from '../components/BottomNav'
 import Chip from '../components/Chip'
-import { useMockEvents } from '../hooks/events/useMockEvents'
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, MapPin, Users, Lock, ChevronDown } from '../components/Icons'
 import ColorPicker from '../components/ColorPicker'
+import { Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, MapPin, Plus, Users } from '../components/Icons'
+import { hp, wp } from '../helpers/common'
 import { getEventColor as getEventColorFromTheme } from '../helpers/themeHelpers'
+import { useEventsForUser } from '../hooks/events/useEventsForUser'
+import { useAuthStore } from '../stores/authStore'
+import { useAppTheme } from './theme'
 
 const DAYS_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -119,13 +117,25 @@ export default function Calendar() {
     org: true,
     campus: true,
   })
-  const { data: allEvents = [] } = useMockEvents()
+  const { user } = useAuthStore()
+  const { data: eventsData } = useEventsForUser(user?.id)
 
-  // Mock current user - replace with real auth
-  const currentUserId = 'user-123'
+  const currentUserId = user?.id || 'anonymous'
+
+  // Flatten paginated data into a single array
+  const allEvents = useMemo(() => {
+    if (!eventsData?.pages) return []
+    return eventsData.pages.flatMap((page) => page.events || [])
+  }, [eventsData])
 
   // Filter events that should appear in calendar based on type
   const calendarEvents = useMemo(() => {
+    // Ensure allEvents is always an array
+    if (!Array.isArray(allEvents)) {
+      console.warn('⚠️ allEvents is not an array:', allEvents)
+      return []
+    }
+    
     let filtered = allEvents
     
     // Filter by visibility toggle
@@ -167,7 +177,7 @@ export default function Calendar() {
     }
     
     return filtered
-  }, [allEvents, eventTypeFilter, currentUserId])
+  }, [allEvents, eventTypeFilter, currentUserId, showEventTypes])
 
   // Get events for a specific date
   const getEventsForDate = (date) => {
@@ -819,36 +829,37 @@ export default function Calendar() {
           onPressNotifications={() => router.push('/notifications')}
         />
 
-        {/* View Mode Selector */}
-        <View style={styles.viewModeContainer}>
-          <Chip
-            label="Month"
-            active={viewMode === 'month'}
-            onPress={() => setViewMode('month')}
-            style={styles.viewModeChip}
-          />
-          <Chip
-            label="Week"
-            active={viewMode === 'week'}
-            onPress={() => setViewMode('week')}
-            style={styles.viewModeChip}
-          />
-          <Chip
-            label="Day"
-            active={viewMode === 'day'}
-            onPress={() => setViewMode('day')}
-            style={styles.viewModeChip}
-          />
-          <Chip
-            label="Schedule"
-            active={viewMode === 'schedule'}
-            onPress={() => setViewMode('schedule')}
-            style={styles.viewModeChip}
-          />
-        </View>
+        {/* Unified Calendar Controls - Compact */}
+        <View style={styles.unifiedControlsContainer}>
+          {/* View Mode Selector Row */}
+          <View style={styles.viewModeRow}>
+            <Chip
+              label="Month"
+              active={viewMode === 'month'}
+              onPress={() => setViewMode('month')}
+              style={styles.viewModeChip}
+            />
+            <Chip
+              label="Week"
+              active={viewMode === 'week'}
+              onPress={() => setViewMode('week')}
+              style={styles.viewModeChip}
+            />
+            <Chip
+              label="Day"
+              active={viewMode === 'day'}
+              onPress={() => setViewMode('day')}
+              style={styles.viewModeChip}
+            />
+            <Chip
+              label="Schedule"
+              active={viewMode === 'schedule'}
+              onPress={() => setViewMode('schedule')}
+              style={styles.viewModeChip}
+            />
+          </View>
 
-        {/* Event Type Filter (Google Calendar style) - Compact */}
-        <View style={styles.eventTypeFilterContainer}>
+          {/* Event Type Filter Row */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -958,17 +969,16 @@ export default function Calendar() {
               </Text>
             </TouchableOpacity>
           </ScrollView>
-        </View>
 
-        {/* Month Navigation (only for month view) */}
-        {viewMode === 'month' && (
-          <View style={styles.monthNavigation}>
+          {/* Month Navigation (only for month view) - Integrated */}
+          {viewMode === 'month' && (
+            <View style={styles.monthNavigationCompact}>
             <TouchableOpacity
               onPress={() => navigateMonth(-1)}
               style={styles.navButton}
               activeOpacity={0.7}
             >
-              <ChevronLeft size={hp(2)} color={theme.colors.textPrimary} />
+              <ChevronLeft size={hp(1.8)} color={theme.colors.textSecondary} />
             </TouchableOpacity>
             <Text style={styles.monthTitle}>
               {MONTHS[selectedDate.getMonth()]} {selectedDate.getFullYear()}
@@ -978,20 +988,20 @@ export default function Calendar() {
               style={styles.navButton}
               activeOpacity={0.7}
             >
-              <ChevronRight size={hp(2)} color={theme.colors.textPrimary} />
+              <ChevronRight size={hp(1.8)} color={theme.colors.textSecondary} />
             </TouchableOpacity>
-          </View>
-        )}
+            </View>
+          )}
 
-        {/* Week Navigation (only for week view) */}
-        {viewMode === 'week' && (
-          <View style={styles.weekNavigation}>
+          {/* Week Navigation (only for week view) - Integrated */}
+          {viewMode === 'week' && (
+            <View style={styles.weekNavigationCompact}>
             <TouchableOpacity
               onPress={() => navigateWeek(-1)}
               style={styles.navButton}
               activeOpacity={0.7}
             >
-              <ChevronLeft size={hp(2)} color={theme.colors.textPrimary} />
+              <ChevronLeft size={hp(1.8)} color={theme.colors.textSecondary} />
             </TouchableOpacity>
             <Text style={styles.weekTitle}>
               {(() => {
@@ -1007,33 +1017,34 @@ export default function Calendar() {
               style={styles.navButton}
               activeOpacity={0.7}
             >
-              <ChevronRight size={hp(2)} color={theme.colors.textPrimary} />
+              <ChevronRight size={hp(1.8)} color={theme.colors.textSecondary} />
             </TouchableOpacity>
-          </View>
-        )}
+            </View>
+          )}
 
-        {/* Day Navigation (only for day view) */}
-        {viewMode === 'day' && (
-          <View style={styles.dayNavigation}>
-            <TouchableOpacity
-              onPress={() => navigateDay(-1)}
-              style={styles.navButton}
-              activeOpacity={0.7}
-            >
-              <ChevronLeft size={hp(2)} color={theme.colors.textPrimary} />
-            </TouchableOpacity>
-            <Text style={styles.dayTitle}>
-              {MONTHS[selectedDate.getMonth()]} {selectedDate.getDate()}
-            </Text>
-            <TouchableOpacity
-              onPress={() => navigateDay(1)}
-              style={styles.navButton}
-              activeOpacity={0.7}
-            >
-              <ChevronRight size={hp(2)} color={theme.colors.textPrimary} />
-            </TouchableOpacity>
-          </View>
-        )}
+          {/* Day Navigation (only for day view) - Integrated */}
+          {viewMode === 'day' && (
+            <View style={styles.dayNavigationCompact}>
+              <TouchableOpacity
+                onPress={() => navigateDay(-1)}
+                style={styles.navButton}
+                activeOpacity={0.7}
+              >
+                <ChevronLeft size={hp(1.8)} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+              <Text style={styles.dayTitle}>
+                {MONTHS[selectedDate.getMonth()]} {selectedDate.getDate()}
+              </Text>
+              <TouchableOpacity
+                onPress={() => navigateDay(1)}
+                style={styles.navButton}
+                activeOpacity={0.7}
+              >
+                <ChevronRight size={hp(1.8)} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
 
         {/* Calendar View */}
         {renderView()}
@@ -1104,11 +1115,8 @@ function CreateCalendarEventModal({ visible, onClose, selectedDate, onEventCreat
   ]
 
   // Mock connections
-  const mockConnections = [
-    { id: 'user-1', name: 'Danielle Williams', avatar: 'DW', type: 'friend' },
-    { id: 'user-2', name: 'John Smith', avatar: 'JS', type: 'friend' },
-    { id: 'user-3', name: 'Sarah Johnson', avatar: 'SJ', type: 'friend' },
-  ]
+  // TODO: Fetch connections from Supabase
+  const connections: any[] = []
 
   const formatDate = (date) => {
     return date.toLocaleDateString('en-US', {
@@ -1126,7 +1134,20 @@ function CreateCalendarEventModal({ visible, onClose, selectedDate, onEventCreat
     })
   }
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
+    // Check onboarding completion
+    if (!userProfile?.onboarding_complete) {
+      Alert.alert(
+        'Complete Your Profile',
+        `Please complete your onboarding to create events. You're ${userProfile?.profile_completion_percentage || 0}% done!`,
+        [
+          { text: 'Later', style: 'cancel' },
+          { text: 'Complete Now', onPress: () => router.push('/onboarding') },
+        ]
+      )
+      return
+    }
+    
     if (!title.trim()) {
       Alert.alert('Required', 'Please enter an event title')
       return
@@ -1161,15 +1182,36 @@ function CreateCalendarEventModal({ visible, onClose, selectedDate, onEventCreat
       recurring_end_date: isRecurring && recurringEndDate ? recurringEndDate.toISOString() : null,
     }
 
-    // For now, just close and call onEventCreated
-    // In real app, this would create the event via API
-    console.log('Creating event:', newEvent)
-    onEventCreated()
-    onClose()
-    
-    // TODO: Create event via API
-    // If org event, it will auto-sync to all org members
-    // If campus event, it will be visible to all campus users
+    // Create event in database
+    try {
+      console.log('Creating event:', newEvent)
+      
+      // Map to database schema
+      const eventData = {
+        title: newEvent.title,
+        description: null, // Calendar events don't have description field in UI
+        start_at: newEvent.start_at,
+        end_at: newEvent.end_at,
+        location_name: newEvent.location_name,
+        location_address: newEvent.location_name, // Use same for address
+        visibility: newEvent.visibility,
+        org_id: eventType === 'org' && userOrgs.length > 0 ? (userOrgs.find(o => o.isAdmin)?.id || userOrgs[0]?.id || null) : null,
+        requires_approval: false,
+        hide_guest_list: false,
+        allow_sharing: true,
+        is_paid: false,
+      }
+
+      console.log('Creating event with data:', eventData)
+      await createEventMutation.mutateAsync(eventData)
+      
+      Alert.alert('Success', 'Event created successfully!')
+      onEventCreated()
+      onClose()
+    } catch (error) {
+      console.error('Error creating event:', error)
+      Alert.alert('Error', error.message || 'Failed to create event. Please try again.')
+    }
   }
 
   const toggleInvitee = (id) => {
@@ -1754,7 +1796,7 @@ function CreateCalendarEventModal({ visible, onClose, selectedDate, onEventCreat
                   </TouchableOpacity>
 
                   {/* Individual Connections */}
-                  {mockConnections.map((connection) => (
+                  {connections.map((connection) => (
                     <TouchableOpacity
                       key={connection.id}
                       style={[
@@ -1925,38 +1967,36 @@ const createStyles = (theme) => StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.background,
   },
-  viewModeContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(1.5),
-    gap: wp(2),
+  unifiedControlsContainer: {
     backgroundColor: theme.colors.background,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.colors.border,
+    paddingBottom: theme.spacing.xs,
+  },
+  viewModeRow: {
+    flexDirection: 'row',
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.xs,
+    gap: theme.spacing.xs,
   },
   viewModeChip: {
     flex: 1,
   },
-  eventTypeFilterContainer: {
-    backgroundColor: theme.colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    maxHeight: hp(4.5),
-  },
   eventTypeFilterContent: {
-    paddingHorizontal: wp(3),
-    paddingVertical: hp(0.6),
-    gap: wp(0.8),
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    gap: theme.spacing.xs,
     alignItems: 'center',
   },
   filterChip: {
-    paddingHorizontal: wp(2),
-    paddingVertical: hp(0.3),
-    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.backgroundSecondary,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    marginRight: wp(0.8),
+    marginRight: theme.spacing.xs,
     minHeight: hp(2.5),
     justifyContent: 'center',
     alignItems: 'center',
@@ -1966,9 +2006,9 @@ const createStyles = (theme) => StyleSheet.create({
     borderColor: theme.colors.accent,
   },
   filterChipText: {
-    fontSize: hp(1.1),
+    fontSize: theme.typography.sizes.xs,
     fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '500',
+    fontWeight: theme.typography.weights.medium,
     color: theme.colors.textSecondary,
     letterSpacing: 0.1,
   },
@@ -1980,12 +2020,20 @@ const createStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(2),
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
     backgroundColor: theme.colors.background,
   },
+  monthNavigationCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.xs,
+    paddingBottom: theme.spacing.xs,
+  },
   navButton: {
-    padding: hp(1),
+    padding: theme.spacing.xs,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.backgroundSecondary,
     ...Platform.select({
@@ -2001,9 +2049,9 @@ const createStyles = (theme) => StyleSheet.create({
     }),
   },
   monthTitle: {
-    fontSize: hp(2.2),
+    fontSize: theme.typography.sizes.xl,
     fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '700',
+    fontWeight: theme.typography.weights.bold,
     color: theme.colors.textPrimary,
     letterSpacing: -0.3,
   },
@@ -2011,14 +2059,22 @@ const createStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(1.5),
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.sm,
     backgroundColor: theme.colors.background,
   },
+  weekNavigationCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.xs,
+    paddingBottom: theme.spacing.xs,
+  },
   weekTitle: {
-    fontSize: hp(1.8),
+    fontSize: theme.typography.sizes.lg,
     fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '600',
+    fontWeight: theme.typography.weights.semibold,
     color: theme.colors.textPrimary,
   },
   dayNavigation: {
@@ -2028,6 +2084,14 @@ const createStyles = (theme) => StyleSheet.create({
     paddingHorizontal: wp(4),
     paddingVertical: hp(1.5),
     backgroundColor: theme.colors.background,
+  },
+  dayNavigationCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.xs,
+    paddingBottom: theme.spacing.xs,
   },
   dayTitle: {
     fontSize: hp(2),
@@ -2138,8 +2202,8 @@ const createStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: hp(0.3),
-    gap: wp(0.4),
+    marginTop: hp(0.6),
+    gap: wp(0.6),
     width: '100%',
     paddingHorizontal: wp(1),
   },
@@ -2251,7 +2315,7 @@ const createStyles = (theme) => StyleSheet.create({
     width: wp(15),
     borderRightWidth: 1.5,
     borderRightColor: theme.colors.border,
-    backgroundColor: theme.colors.backgroundSecondary,
+    backgroundColor: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)',
   },
   weekHeaderDay: {
     flex: 1,
@@ -2315,7 +2379,7 @@ const createStyles = (theme) => StyleSheet.create({
     borderRightWidth: 1.5,
     borderRightColor: theme.colors.border,
     justifyContent: 'flex-start',
-    backgroundColor: theme.colors.backgroundSecondary,
+    backgroundColor: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)',
   },
   weekHourText: {
     fontSize: hp(1.3),
@@ -2595,7 +2659,7 @@ const createStyles = (theme) => StyleSheet.create({
   },
   scheduleDateSection: {
     paddingHorizontal: wp(4),
-    marginBottom: hp(3),
+    marginBottom: hp(4),
   },
   scheduleDateHeader: {
     flexDirection: 'row',
@@ -2609,7 +2673,7 @@ const createStyles = (theme) => StyleSheet.create({
   scheduleDateTitle: {
     fontSize: hp(2.2),
     fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '700',
+    fontWeight: theme.typography.weights.semibold,
     color: theme.colors.textPrimary,
   },
   scheduleDateSubtitle: {
@@ -2623,7 +2687,7 @@ const createStyles = (theme) => StyleSheet.create({
     backgroundColor: theme.colors.background,
     borderRadius: theme.radius.md,
     padding: wp(3.5),
-    marginBottom: hp(1.5),
+    marginBottom: hp(2),
     borderLeftWidth: 4,
     borderWidth: 1,
     borderColor: theme.colors.border,

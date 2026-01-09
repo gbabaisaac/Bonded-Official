@@ -1,157 +1,31 @@
-import React, { useState, useMemo } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  FlatList,
-  Modal,
-  Pressable,
-} from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { hp, wp } from '../helpers/common'
-import { useAppTheme } from './theme'
+import React, { useEffect, useMemo, useState } from 'react'
+import {
+    FlatList,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import AppTopBar from '../components/AppTopBar'
 import BottomNav from '../components/BottomNav'
 import Picker from '../components/Picker'
 import ShareModal from '../components/ShareModal'
+import { hp, wp } from '../helpers/common'
+import { isFeatureEnabled } from '../utils/featureGates'
+import { useAppTheme } from './theme'
 
 // Mock professors data
-const MOCK_PROFESSORS = [
-  {
-    id: 'prof-1',
-    name: 'Dr. Sarah Chen',
-    department: 'Computer Science',
-    courses: ['CS 101', 'CS 201', 'CS 301'],
-    overallRating: 4.5,
-    difficulty: 3.2,
-    wouldTakeAgain: 0.85,
-    totalRatings: 127,
-    tags: ['Helpful', 'Clear', 'Fair'],
-  },
-  {
-    id: 'prof-2',
-    name: 'Dr. Michael Rodriguez',
-    department: 'Mathematics',
-    courses: ['MATH 150', 'MATH 250', 'MATH 350'],
-    overallRating: 4.8,
-    difficulty: 4.1,
-    wouldTakeAgain: 0.72,
-    totalRatings: 89,
-    tags: ['Challenging', 'Knowledgeable', 'Strict'],
-  },
-  {
-    id: 'prof-3',
-    name: 'Dr. Emily Johnson',
-    department: 'Psychology',
-    courses: ['PSY 101', 'PSY 201'],
-    overallRating: 4.2,
-    difficulty: 2.8,
-    wouldTakeAgain: 0.91,
-    totalRatings: 156,
-    tags: ['Engaging', 'Easy', 'Fun'],
-  },
-  {
-    id: 'prof-4',
-    name: 'Dr. James Wilson',
-    department: 'Business',
-    courses: ['BUS 101', 'BUS 201', 'BUS 301', 'BUS 401'],
-    overallRating: 3.9,
-    difficulty: 3.5,
-    wouldTakeAgain: 0.68,
-    totalRatings: 203,
-    tags: ['Professional', 'Demanding', 'Real-world'],
-  },
-  {
-    id: 'prof-5',
-    name: 'Dr. Lisa Anderson',
-    department: 'Biology',
-    courses: ['BIO 101', 'BIO 201'],
-    overallRating: 4.6,
-    difficulty: 3.8,
-    wouldTakeAgain: 0.79,
-    totalRatings: 94,
-    tags: ['Passionate', 'Organized', 'Supportive'],
-  },
-  {
-    id: 'prof-6',
-    name: 'Dr. Robert Kim',
-    department: 'Engineering',
-    courses: ['ENG 101', 'ENG 201', 'ENG 301'],
-    overallRating: 4.0,
-    difficulty: 4.3,
-    wouldTakeAgain: 0.65,
-    totalRatings: 112,
-    tags: ['Rigorous', 'Technical', 'Fair'],
-  },
-  {
-    id: 'prof-7',
-    name: 'Dr. Maria Garcia',
-    department: 'English',
-    courses: ['ENGL 101', 'ENGL 201', 'ENGL 301'],
-    overallRating: 4.7,
-    difficulty: 3.0,
-    wouldTakeAgain: 0.88,
-    totalRatings: 178,
-    tags: ['Inspiring', 'Clear', 'Approachable'],
-  },
-  {
-    id: 'prof-8',
-    name: 'Dr. David Thompson',
-    department: 'Chemistry',
-    courses: ['CHEM 101', 'CHEM 201'],
-    overallRating: 3.7,
-    difficulty: 4.5,
-    wouldTakeAgain: 0.55,
-    totalRatings: 145,
-    tags: ['Difficult', 'Knowledgeable', 'Strict'],
-  },
-]
-
-// Mock reviews
-const MOCK_REVIEWS = {
-  'prof-1': [
-    {
-      id: 'rev-1',
-      course: 'CS 101',
-      rating: 5,
-      difficulty: 3,
-      wouldTakeAgain: true,
-      grade: 'A',
-      text: 'Amazing professor! Very clear explanations and always available for help.',
-      date: '2024-11-15',
-      helpful: 23,
-    },
-    {
-      id: 'rev-2',
-      course: 'CS 201',
-      rating: 4,
-      difficulty: 3,
-      wouldTakeAgain: true,
-      grade: 'B+',
-      text: 'Good professor, assignments are fair. Lectures can be a bit fast-paced.',
-      date: '2024-10-20',
-      helpful: 15,
-    },
-  ],
-  'prof-2': [
-    {
-      id: 'rev-3',
-      course: 'MATH 250',
-      rating: 5,
-      difficulty: 4,
-      wouldTakeAgain: true,
-      grade: 'A-',
-      text: 'Challenging but fair. Really knows the material and explains well.',
-      date: '2024-11-10',
-      helpful: 31,
-    },
-  ],
-}
+// TODO: Wire to real Supabase data
+// - Fetch professors from professors table
+// - Fetch reviews from professor_reviews table
+const professors: any[] = []
+const reviews: any = {}
 
 const DEPARTMENTS = [
   { value: 'all', label: 'All Departments' },
@@ -184,9 +58,16 @@ export default function RateProfessor() {
   const [showShareModal, setShowShareModal] = useState(false)
   const [shareContent, setShareContent] = useState(null)
 
+  // Gate: Redirect if feature is disabled
+  useEffect(() => {
+    if (!isFeatureEnabled('RATE_MY_PROFESSOR')) {
+      router.replace('/yearbook')
+    }
+  }, [router])
+
   // Filter and sort professors
   const filteredProfessors = useMemo(() => {
-    let filtered = MOCK_PROFESSORS.filter((prof) => {
+    let filtered = professors.filter((prof) => {
       const matchesSearch =
         prof.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         prof.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -601,9 +482,9 @@ export default function RateProfessor() {
                       </TouchableOpacity>
                     </View>
 
-                    {MOCK_REVIEWS[selectedProfessor.id] ? (
+                    {reviews[selectedProfessor.id] ? (
                       <FlatList
-                        data={MOCK_REVIEWS[selectedProfessor.id]}
+                        data={reviews[selectedProfessor.id]}
                         renderItem={renderReview}
                         keyExtractor={(item) => item.id}
                         scrollEnabled={false}

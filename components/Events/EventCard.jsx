@@ -1,18 +1,35 @@
 import React, { useState } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, Image, Share, Alert } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
-import { Calendar, MapPin, Users, Share2, Heart, HeartFill } from '../Icons'
-import { hp, wp } from '../../helpers/common'
-import AppCard from '../AppCard'
+import { Image, Share, StyleSheet, TouchableOpacity, View } from 'react-native'
+import { useRouter } from 'expo-router'
 import { useAppTheme } from '../../app/theme'
+import { hp, wp } from '../../helpers/common'
+import { useEventActions } from '../../hooks/events/useEventActions'
+import { useAuthStore } from '../../stores/authStore'
+import { isFeatureEnabled } from '../../utils/featureGates'
+import AppCard from '../AppCard'
+import { Calendar, Heart, HeartFill, MapPin, Share2, Users, Settings } from '../Icons'
+import Button from '../ui/Button'
+import Text from '../ui/Text'
 
 export default function EventCard({ event, onPress, currentUserId, attendanceStatus, onAction }) {
   const theme = useAppTheme()
-  // Use attendance status from parent if provided, otherwise local state
-  const [localGoing, setLocalGoing] = useState(false)
+  const router = useRouter()
+  const { user } = useAuthStore()
   const [isSaved, setIsSaved] = useState(false)
   const styles = createStyles(theme)
-  const isGoing = attendanceStatus === 'going' || localGoing
+
+  // Use real Supabase integration if user is authenticated
+  const userId = user?.id || currentUserId
+  const { attendanceState, toggleGoing, requestJoin, isLoading: isActionLoading } = useEventActions(
+    event,
+    user?.id // Only pass real user ID, not anonymous
+  )
+
+  // Determine if user is going - prefer prop/local state first (for immediate UI feedback), then real state
+  const isGoing = attendanceStatus === 'going' || attendanceState?.isGoing
+
+  // Check if current user is the organizer
+  const isOrganizer = user?.id && event?.organizer_id === user.id
 
   const handleShare = async (e) => {
     e.stopPropagation()
@@ -57,7 +74,8 @@ export default function EventCard({ event, onPress, currentUserId, attendanceSta
     return date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
-    })
+      hour12: true,
+    }).toLowerCase().replace(/\s/g, '')
   }
 
 
@@ -66,7 +84,7 @@ export default function EventCard({ event, onPress, currentUserId, attendanceSta
       case 'public':
         return null // No badge for public
       case 'org_only':
-        return { label: 'Org Only', color: theme.colors.accent }
+        return { label: 'Org Only', color: theme.colors.info }
       case 'invite_only':
         return { label: 'Invite Only', color: '#FF6B6B' }
       case 'school':
@@ -93,105 +111,69 @@ export default function EventCard({ event, onPress, currentUserId, attendanceSta
         onPress={onPress}
         style={styles.cardContent}
       >
-        {/* Event Image */}
+        {/* Event Image - Clean, no text overlay */}
         {event.image_url ? (
-          <Image source={{ uri: event.image_url }} style={styles.image} />
+          <Image source={{ uri: event.image_url }} style={styles.image} resizeMode="cover" />
         ) : (
           <View style={styles.imagePlaceholder}>
-            <Calendar size={hp(4)} color={theme.colors.accent} strokeWidth={2} />
+            <Calendar size={hp(4)} color={theme.colors.textSecondary} strokeWidth={2} />
           </View>
         )}
 
-        {/* Gradient Overlay for Text */}
-        <LinearGradient
-          colors={['transparent', 'rgba(0, 0, 0, 0.7)']}
-          style={styles.gradient}
-        />
-
-        {/* Top Action Buttons */}
-        <View style={styles.topActions}>
-          <TouchableOpacity
-            style={styles.actionIconButton}
-            onPress={handleShare}
-            activeOpacity={0.8}
-          >
-            <Share2 size={hp(2)} color={theme.colors.white} strokeWidth={2.5} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionIconButton}
-            onPress={handleSave}
-            activeOpacity={0.8}
-          >
-            {isSaved ? (
-              <HeartFill size={hp(2)} color="#FF3B30" strokeWidth={2.5} fill="#FF3B30" />
-            ) : (
-              <Heart size={hp(2)} color={theme.colors.white} strokeWidth={2.5} />
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Content Overlay */}
-        <View style={styles.overlayContent}>
-          {/* Visibility Badge */}
-          {visibilityBadge && (
-            <View
-              style={[
-                styles.visibilityBadge,
-                { backgroundColor: visibilityBadge.color + '40' },
-              ]}
-            >
-              <Text style={styles.visibilityBadgeText}>
-                {visibilityBadge.label}
-              </Text>
-            </View>
-          )}
-
-          {/* Title */}
-          <Text style={styles.title} numberOfLines={2}>
-            {event.title}
-          </Text>
-
-          {/* Date & Time */}
-          <View style={styles.infoRow}>
-            <Calendar size={hp(1.6)} color={theme.colors.white} strokeWidth={2} />
-            <Text style={styles.infoText}>
-              {formatDate(event.start_at)} • {formatTime(event.start_at)}
+        {/* Content Below Image - Eventbrite Style */}
+        <View style={styles.contentContainer}>
+          {/* Title Row with Action Icons */}
+          <View style={styles.titleRow}>
+            <Text variant="title" style={styles.title} numberOfLines={2}>
+              {event.title}
             </Text>
+            <View style={styles.actionIcons}>
+              <TouchableOpacity
+                style={styles.actionIconButton}
+                onPress={handleShare}
+                activeOpacity={0.7}
+              >
+                <Share2 size={hp(2.2)} color={theme.colors.textSecondary} strokeWidth={2} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionIconButton}
+                onPress={handleSave}
+                activeOpacity={0.7}
+              >
+                {isSaved ? (
+                  <HeartFill size={hp(2.2)} color="#FF3B30" strokeWidth={2} fill="#FF3B30" />
+                ) : (
+                  <Heart size={hp(2.2)} color={theme.colors.textSecondary} strokeWidth={2} />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* Location */}
-          {event.location_name && (
-            <View style={styles.infoRow}>
-              <MapPin size={hp(1.6)} color={theme.colors.white} strokeWidth={2} />
-              <Text style={styles.infoText} numberOfLines={1}>
-                {event.location_name}
-              </Text>
-            </View>
-          )}
+          {/* Date, Time, Location - Clean single line */}
+          <View style={styles.detailsRow}>
+            <Calendar size={hp(1.6)} color={theme.colors.textSecondary} strokeWidth={2} />
+            <Text variant="meta" style={styles.detailsText}>
+              {formatDate(event.start_at)} • {formatTime(event.start_at)}
+            </Text>
+            {event.location_name && (
+              <>
+                <Text variant="meta" style={styles.detailsSeparator}>•</Text>
+                <MapPin size={hp(1.6)} color={theme.colors.textSecondary} strokeWidth={2} />
+                <Text variant="meta" style={styles.detailsText} numberOfLines={1}>
+                  {event.location_name}
+                </Text>
+              </>
+            )}
+          </View>
 
-          {/* Footer */}
+          {/* Footer with Price and Attendees */}
           <View style={styles.footer}>
             <View style={styles.footerLeft}>
-              {/* Host Info */}
-              {event.org && (
-                <View style={styles.hostInfo}>
-                  <Text style={styles.hostText}>Hosted by {event.org.name}</Text>
-                </View>
-              )}
-              
-              {/* Attendees Count */}
-              {attendeesCount > 0 && (
-                <View style={styles.attendeesBadge}>
-                  <Users size={hp(1.4)} color={theme.colors.white} strokeWidth={2} />
-                  <Text style={styles.attendeesText}>{attendeesCount}</Text>
-                </View>
-              )}
-
               {/* Price Badge */}
               {event.is_paid ? (
                 <View style={styles.priceBadge}>
                   <Text style={styles.priceText}>
-                    ${(event.ticket_types?.[0]?.price_cents || 0) / 100}
+                    From ${(event.ticket_types?.[0]?.price_cents || 0) / 100}
                   </Text>
                 </View>
               ) : (
@@ -199,92 +181,126 @@ export default function EventCard({ event, onPress, currentUserId, attendanceSta
                   <Text style={styles.freeText}>Free</Text>
                 </View>
               )}
-            </View>
 
-            {/* Going Badge */}
-            {isGoing && (
-              <View style={styles.goingBadge}>
-                <Text style={styles.goingText}>Going ✓</Text>
-              </View>
-            )}
+              {/* Attendees Count */}
+              {attendeesCount > 0 && (
+                <View style={styles.attendeesBadge}>
+                  <Users size={hp(1.4)} color={theme.colors.textSecondary} strokeWidth={2} />
+                  <Text variant="meta" style={styles.attendeesText}>{attendeesCount} going</Text>
+                </View>
+              )}
+
+              {/* Going Badge */}
+              {isGoing && (
+                <View style={styles.goingBadge}>
+                  <Text variant="meta" style={styles.goingText}>Going ✓</Text>
+                </View>
+              )}
+            </View>
           </View>
         </View>
       </TouchableOpacity>
 
-      {/* Action Button */}
-      <View style={styles.actionContainer}>
-        {!event.requires_approval && !event.is_paid && (
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              isGoing ? styles.actionButtonActive : styles.actionButtonInactive,
-            ]}
-            onPress={(e) => {
-              e.stopPropagation()
-              if (onAction) {
-                onAction(event.id, 'going')
-              } else {
-                setLocalGoing(!localGoing)
-              }
-            }}
-            activeOpacity={0.8}
-          >
-            <Text
+      {/* Join Button / Manage Button - Eventbrite Style */}
+      {(userId || onAction) && (
+        <View style={styles.actionContainer}>
+          {/* Manage Button for Organizer */}
+          {isOrganizer && (
+            <Button
+              title="Manage Event"
+              variant="secondary"
+              onPress={(e) => {
+                e.stopPropagation()
+                router.push(`/events/manage/${event.id}`)
+              }}
+              style={[styles.joinButton, styles.manageButton]}
+              textStyle={[styles.joinButtonText, styles.manageButtonText]}
+              leftIcon={<Settings size={hp(1.8)} color={theme.colors.bondedPurple} />}
+            />
+          )}
+
+          {/* Join buttons for non-organizers */}
+          {!isOrganizer && !event.requires_approval && !event.is_paid && (
+            <Button
+              title={isGoing ? 'Going ✓' : 'Join'}
+              variant={isGoing ? 'primary' : 'secondary'}
+              onPress={(e) => {
+                e.stopPropagation()
+                // Always call onAction for immediate local state update
+                if (onAction) {
+                  onAction(event.id, 'going')
+                }
+                // Also update Supabase if user is authenticated
+                if (user?.id && toggleGoing) {
+                  toggleGoing()
+                }
+              }}
+              disabled={isActionLoading}
               style={[
-                styles.actionButtonText,
-                isGoing && styles.actionButtonTextActive,
+                styles.joinButton,
+                isGoing ? styles.joinButtonActive : styles.joinButtonInactive,
               ]}
-            >
-              {isGoing ? 'Going ✓' : 'Going'}
-            </Text>
-          </TouchableOpacity>
-        )}
+              textStyle={[
+                styles.joinButtonText,
+                isGoing ? styles.joinButtonTextActive : styles.joinButtonTextInactive,
+              ]}
+            />
+          )}
 
-        {event.requires_approval && attendanceStatus !== 'pending' && !isGoing && (
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={(e) => {
-              e.stopPropagation()
-              if (onAction) {
-                onAction(event.id, 'request')
-              } else {
-                onPress()
-              }
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.actionButtonText}>Request to Join</Text>
-          </TouchableOpacity>
-        )}
+          {!isOrganizer && event.requires_approval && !attendanceState?.isRequested && !isGoing && (
+            <Button
+              title="Request to Join"
+              variant="secondary"
+              onPress={(e) => {
+                e.stopPropagation()
+                // Always call onAction for immediate local state update
+                if (onAction) {
+                  onAction(event.id, 'request')
+                }
+                // Also update Supabase if user is authenticated
+                if (user?.id && requestJoin) {
+                  requestJoin()
+                }
+              }}
+              disabled={isActionLoading}
+              style={styles.joinButton}
+              textStyle={styles.joinButtonText}
+            />
+          )}
 
-        {attendanceStatus === 'pending' && (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonPending]}
-            disabled
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Text style={[styles.actionButtonText, styles.actionButtonTextPending]}>
-              Pending Approval
-            </Text>
-          </TouchableOpacity>
-        )}
+          {!isOrganizer && (attendanceState?.isRequested || attendanceStatus === 'pending') && (
+            <Button
+              title="Request Pending"
+              variant="secondary"
+              disabled
+              style={[styles.joinButton, styles.joinButtonPending]}
+              textStyle={[styles.joinButtonText, styles.joinButtonTextPending]}
+            />
+          )}
 
-        {event.is_paid && (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonPrimary]}
-            onPress={(e) => {
-              e.stopPropagation()
-              onPress()
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.actionButtonText, styles.actionButtonTextPrimary]}>
-              Buy Ticket
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+          {!isOrganizer && event.is_paid && isFeatureEnabled('PAID_EVENTS') && (
+            <Button
+              title="Buy Ticket"
+              variant="primary"
+              onPress={(e) => {
+                e.stopPropagation()
+                onPress() // Navigate to detail page for ticket purchase
+              }}
+              style={styles.joinButton}
+              textStyle={styles.joinButtonText}
+            />
+          )}
+          {!isOrganizer && event.is_paid && !isFeatureEnabled('PAID_EVENTS') && (
+            <Button
+              title="Paid Event"
+              variant="secondary"
+              disabled
+              style={[styles.joinButton, styles.joinButtonPending]}
+              textStyle={[styles.joinButtonText, styles.joinButtonTextPending]}
+            />
+          )}
+        </View>
+      )}
     </AppCard>
   )
 }
@@ -294,87 +310,76 @@ const createStyles = (theme) =>
   StyleSheet.create({
     card: {
       width: '100%',
+      overflow: 'hidden',
     },
     cardContent: {
-      position: 'relative',
       overflow: 'hidden',
       borderRadius: theme.radius.lg,
+      backgroundColor: theme.colors.surface,
     },
+    // Image section - clean, no overlays
     image: {
       width: '100%',
-      height: hp(25),
-      resizeMode: 'cover',
+      height: hp(20), // Slightly smaller for Eventbrite style
+      backgroundColor: theme.colors.backgroundSecondary,
     },
     imagePlaceholder: {
       width: '100%',
-      height: hp(25),
-      backgroundColor: theme.colors.accent + '20',
+      height: hp(20),
+      backgroundColor: theme.colors.accent + '15',
       alignItems: 'center',
       justifyContent: 'center',
     },
-    gradient: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      height: hp(12),
+    // Content below image - Eventbrite style
+    contentContainer: {
+      paddingHorizontal: wp(4),
+      paddingTop: hp(1.5),
+      paddingBottom: hp(2),
+      backgroundColor: theme.colors.surface,
     },
-    topActions: {
-      position: 'absolute',
-      top: wp(3),
-      right: wp(3),
+    titleRow: {
       flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      marginBottom: hp(1),
       gap: wp(2),
-      zIndex: 10,
-    },
-    actionIconButton: {
-      width: hp(4),
-      height: hp(4),
-      borderRadius: hp(2),
-      backgroundColor: 'rgba(0, 0, 0, 0.4)',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    overlayContent: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      padding: wp(3),
-    },
-    visibilityBadge: {
-      alignSelf: 'flex-start',
-      paddingHorizontal: wp(2.5),
-      paddingVertical: hp(0.4),
-      borderRadius: theme.radius.pill,
-      marginBottom: hp(0.5),
-      backgroundColor: 'rgba(0,0,0,0.3)',
-    },
-    visibilityBadgeText: {
-      fontSize: hp(1.1),
-      fontFamily: theme.typography.fontFamily.body,
-      fontWeight: '600',
-      color: theme.colors.white,
     },
     title: {
-      fontSize: hp(2),
+      fontSize: theme.typography.sizes.xl,
       fontFamily: theme.typography.fontFamily.heading,
       fontWeight: '700',
-      color: theme.colors.white,
-      marginBottom: hp(0.5),
+      color: theme.colors.textPrimary,
+      flex: 1,
+      lineHeight: hp(2.6),
     },
-    infoRow: {
+    actionIcons: {
+      flexDirection: 'row',
+      gap: wp(2),
+      alignItems: 'center',
+    },
+    actionIconButton: {
+      padding: hp(0.5),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    // Details row - single line with date, time, location
+    detailsRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: wp(1.5),
-      marginBottom: hp(0.3),
+      marginBottom: hp(1),
+      flexWrap: 'wrap',
     },
-    infoText: {
-      fontSize: hp(1.3),
+    detailsText: {
+      fontSize: theme.typography.sizes.sm,
       fontFamily: theme.typography.fontFamily.body,
-      color: theme.colors.white,
-      opacity: 0.9,
-      flex: 1,
+      color: theme.colors.textSecondary,
+      marginLeft: wp(0.5),
+    },
+    detailsSeparator: {
+      fontSize: theme.typography.sizes.sm,
+      color: theme.colors.textTertiary,
+      marginHorizontal: wp(0.5),
     },
     footer: {
       flexDirection: 'row',
@@ -386,119 +391,115 @@ const createStyles = (theme) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: wp(2),
-      flex: 1,
+      flexWrap: 'wrap',
     },
-    hostInfo: {
-      marginRight: wp(1),
+    priceBadge: {
+      backgroundColor: theme.colors.warning + '15',
+      borderWidth: 1,
+      borderColor: theme.colors.warning,
+      paddingHorizontal: wp(2.5),
+      paddingVertical: hp(0.5),
+      borderRadius: theme.radius.md,
     },
-    hostText: {
-      fontSize: hp(1.2),
+    priceText: {
+      fontSize: theme.typography.sizes.sm,
       fontFamily: theme.typography.fontFamily.body,
-      color: theme.colors.white,
-      opacity: 0.9,
+      fontWeight: '600',
+      color: theme.colors.warning,
+    },
+    freeBadge: {
+      backgroundColor: theme.colors.success + '15',
+      borderWidth: 1,
+      borderColor: theme.colors.success,
+      paddingHorizontal: wp(2.5),
+      paddingVertical: hp(0.5),
+      borderRadius: theme.radius.md,
+    },
+    freeText: {
+      fontSize: theme.typography.sizes.sm,
+      fontFamily: theme.typography.fontFamily.body,
+      fontWeight: '600',
+      color: theme.colors.success,
     },
     attendeesBadge: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: wp(1),
-      backgroundColor: 'rgba(255, 255, 255, 0.2)',
       paddingHorizontal: wp(2),
-      paddingVertical: hp(0.3),
-      borderRadius: theme.radius.pill,
+      paddingVertical: hp(0.4),
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.colors.backgroundSecondary,
     },
     attendeesText: {
-      fontSize: hp(1.2),
+      fontSize: theme.typography.sizes.sm,
       fontFamily: theme.typography.fontFamily.body,
-      fontWeight: '600',
-      color: theme.colors.white,
-    },
-    priceBadge: {
-      backgroundColor: theme.colors.accent,
-      paddingHorizontal: wp(2),
-      paddingVertical: hp(0.3),
-      borderRadius: theme.radius.pill,
-    },
-    priceText: {
-      fontSize: hp(1.1),
-      fontFamily: theme.typography.fontFamily.body,
-      fontWeight: '600',
-      color: theme.colors.white,
-    },
-    freeBadge: {
-      backgroundColor: theme.colors.accent,
-      paddingHorizontal: wp(2),
-      paddingVertical: hp(0.3),
-      borderRadius: theme.radius.pill,
-    },
-    freeText: {
-      fontSize: hp(1.1),
-      fontFamily: theme.typography.fontFamily.body,
-      fontWeight: '600',
-      color: theme.colors.white,
+      fontWeight: '500',
+      color: theme.colors.textSecondary,
     },
     goingBadge: {
-      backgroundColor: theme.colors.accent,
+      backgroundColor: theme.colors.accent + '15',
+      borderWidth: 1,
+      borderColor: theme.colors.accent,
       paddingHorizontal: wp(2.5),
-      paddingVertical: hp(0.4),
-      borderRadius: theme.radius.pill,
+      paddingVertical: hp(0.5),
+      borderRadius: theme.radius.md,
     },
     goingText: {
-      fontSize: hp(1.2),
+      fontSize: theme.typography.sizes.sm,
       fontFamily: theme.typography.fontFamily.body,
       fontWeight: '600',
-      color: theme.colors.white,
+      color: theme.colors.accent,
     },
     actionContainer: {
-      paddingHorizontal: wp(3),
-      paddingBottom: wp(3),
-      paddingTop: wp(1.5),
-      alignItems: 'center',
+      paddingHorizontal: wp(4),
+      paddingTop: hp(1),
+      paddingBottom: hp(1.5),
       backgroundColor: theme.colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
     },
-    actionButton: {
+    joinButton: {
+      width: '100%',
+      paddingVertical: hp(1.2),
+      borderRadius: theme.radius.lg,
+      minHeight: hp(4.5),
+    },
+    joinButtonActive: {
+      backgroundColor: theme.colors.accent,
+      borderWidth: 0,
+    },
+    joinButtonInactive: {
       backgroundColor: theme.colors.surface,
       borderWidth: 1.5,
       borderColor: theme.colors.accent,
-      paddingVertical: hp(1),
-      paddingHorizontal: wp(4),
-      borderRadius: theme.radius.lg,
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: hp(4),
-      width: '100%',
     },
-    actionButtonActive: {
-      backgroundColor: theme.colors.accent,
-      borderColor: theme.colors.accent,
-    },
-    actionButtonInactive: {
-      backgroundColor: theme.colors.surface,
-    },
-    actionButtonPrimary: {
-      backgroundColor: theme.colors.accent,
-      borderColor: theme.colors.accent,
-    },
-    actionButtonPending: {
-      backgroundColor: theme.colors.surface,
+    joinButtonPending: {
+      backgroundColor: theme.colors.backgroundSecondary,
+      borderWidth: 1,
       borderColor: theme.colors.border,
     },
-    actionButtonText: {
-      fontSize: hp(1.6),
+    joinButtonText: {
+      fontSize: theme.typography.sizes.md,
       fontFamily: theme.typography.fontFamily.body,
       fontWeight: '700',
-      color: theme.colors.accent,
       textAlign: 'center',
-      includeFontPadding: false,
-      textAlignVertical: 'center',
     },
-    actionButtonTextActive: {
+    joinButtonTextActive: {
       color: theme.colors.white,
     },
-    actionButtonTextPrimary: {
-      color: theme.colors.white,
+    joinButtonTextInactive: {
+      color: theme.colors.accent,
     },
-    actionButtonTextPending: {
+    joinButtonTextPending: {
       color: theme.colors.textSecondary,
+    },
+    manageButton: {
+      backgroundColor: theme.colors.bondedPurple + '15',
+      borderWidth: 1.5,
+      borderColor: theme.colors.bondedPurple,
+    },
+    manageButtonText: {
+      color: theme.colors.bondedPurple,
     },
   })
 

@@ -37,3 +37,10 @@ export default function AnimatedSubtitle() {
     </div>
   )
 }
+
+
+
+
+
+
+

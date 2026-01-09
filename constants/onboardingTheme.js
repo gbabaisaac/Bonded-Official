@@ -4,7 +4,7 @@ export const ONBOARDING_THEME = {
     textPrimary: '#1A1A1A',
     textSecondary: '#8E8E8E',
     white: '#FFFFFF',
-    bondedPurple: '#A45CFF',
+    bondedPurple: '#8B5CF6', // Actual purple to match app theme
     background: '#FFFFFF',
     backgroundSecondary: 'rgba(255, 255, 255, 0.2)',
     border: 'rgba(0, 0, 0, 0.1)',

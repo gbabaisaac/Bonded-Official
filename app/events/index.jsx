@@ -1,22 +1,24 @@
 import { useRouter } from 'expo-router'
 import React, { useCallback, useMemo, useState } from 'react'
 import {
-  FlatList,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    FlatList,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import AppTopBar from '../../components/AppTopBar'
 import BottomNav from '../../components/BottomNav'
 import EventCard from '../../components/Events/EventCard'
-import { Add, Calendar as CalendarIcon, List, Search } from '../../components/Icons'
+import { Add, Search } from '../../components/Icons'
 import { hp, wp } from '../../helpers/common'
-import { useMockEvents } from '../../hooks/events/useMockEvents'
+import { useEventsForUser } from '../../hooks/events/useEventsForUser'
+import { useAuthStore } from '../../stores/authStore'
+import { isFeatureEnabled } from '../../utils/featureGates'
 import ThemedText from '../components/ThemedText'
 import ThemedView from '../components/ThemedView'
 import { useAppTheme } from '../theme'
@@ -43,36 +45,71 @@ export default function EventsHome() {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState('all')
   const [activeTab, setActiveTab] = useState('browse')
-  const [viewMode, setViewMode] = useState('list') // 'list' or 'calendar'
   const [refreshing, setRefreshing] = useState(false)
-  const [selectedDate, setSelectedDate] = useState(new Date())
   const [showFilters, setShowFilters] = useState(false)
-  // Mock attendance state - in real app this would come from database
-  const [eventAttendance, setEventAttendance] = useState({
-    'event-spring-festival': 'going',
-    'event-art-exhibition': 'pending',
-  }) // { eventId: 'going' | 'pending' }
-  
-  // Mock my events - in real app this would come from database
-  const [myEvents, setMyEvents] = useState([
-    // Add some events as "created by user" for demo
-    // In real app, filter events where created_by === currentUserId
-  ])
 
-  // Mock current user - replace with real auth
-  const currentUserId = 'user-123'
-  
-  // Use mock events for now (until database is set up)
-  // TODO: Switch to useEventsForUser once database is ready
-  const { data: events = [], isLoading, refetch } = useMockEvents()
+  const { user } = useAuthStore()
+
+  // Attendance is still local UI state for immediate feedback
+  const [eventAttendance, setEventAttendance] = useState({}) // { eventId: 'going' | 'pending' }
+
+  const currentUserId = user?.id || 'anonymous'
+
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+    error,
+  } = useEventsForUser(user?.id)
+
+  // Flatten paginated data into a single array
+  const events = useMemo(() => {
+    console.log('📊 Events data structure:', {
+      hasPagesArray: !!data?.pages,
+      pagesCount: data?.pages?.length || 0,
+      firstPageEvents: data?.pages?.[0]?.events?.length || 0,
+      totalPages: data?.pages?.length,
+    })
+
+    if (!data?.pages) {
+      console.log('⚠️ No pages data available')
+      return []
+    }
+
+    const flattenedEvents = data.pages.flatMap((page) => page.events || [])
+    console.log('✅ Flattened events count:', flattenedEvents.length)
+
+    return flattenedEvents
+  }, [data])
+
+  // Check if any page has RLS errors (degraded mode)
+  const hasRlsError = useMemo(() => {
+    return data?.pages?.some((page) => page.rlsError) || false
+  }, [data])
+
+  // Log loading state and errors
+  React.useEffect(() => {
+    console.log('📡 Events loading state:', { isLoading, hasData: !!data, eventCount: events.length, error: error?.message })
+  }, [isLoading, data, events.length, error])
 
   const onRefresh = async () => {
     setRefreshing(true)
-    await refetch()
-    setRefreshing(false)
+    try {
+      await refetch()
+    } finally {
+      setRefreshing(false)
+    }
   }
 
-  // Get events based on active tab
+  const loadMoreEvents = () => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }
+
   const tabEvents = useMemo(() => {
     switch (activeTab) {
       case 'going':
@@ -80,18 +117,17 @@ export default function EventsHome() {
       case 'pending':
         return events.filter((event) => eventAttendance[event.id] === 'pending')
       case 'myEvents':
-        return myEvents
+        // Filter events where current user is the organizer
+        return events.filter((event) => event.organizer_id === user?.id)
       case 'browse':
       default:
         return events
     }
-  }, [events, activeTab, eventAttendance, myEvents])
+  }, [events, activeTab, eventAttendance, user?.id])
 
-  // Filter events based on search and active filter
   const filteredEvents = useMemo(() => {
     let result = tabEvents
 
-    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       result = result.filter((event) => {
@@ -104,12 +140,11 @@ export default function EventsHome() {
       })
     }
 
-    // Time filters
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const endOfToday = new Date(today)
     endOfToday.setHours(23, 59, 59, 999)
-    
+
     const startOfWeek = new Date(today)
     startOfWeek.setDate(today.getDate() - today.getDay())
     const endOfWeek = new Date(startOfWeek)
@@ -130,7 +165,12 @@ export default function EventsHome() {
         })
         break
       case 'free':
-        result = result.filter((event) => !event.is_paid)
+        // If paid events are disabled, filter them out
+        if (!isFeatureEnabled('PAID_EVENTS')) {
+          result = result.filter((event) => !event.is_paid)
+        } else {
+          result = result.filter((event) => !event.is_paid)
+        }
         break
       case 'onCampus':
         result = result.filter((event) => {
@@ -139,25 +179,20 @@ export default function EventsHome() {
         })
         break
       default:
-        // 'all' - no additional filtering
         break
     }
 
-    // Sort by start date (upcoming first)
-    return result.sort((a, b) => {
-      return new Date(a.start_at) - new Date(b.start_at)
-    })
+    return result.sort((a, b) => new Date(a.start_at) - new Date(b.start_at))
   }, [tabEvents, searchQuery, activeFilter])
 
-  // Group events into sections
   const sections = useMemo(() => {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const endOfToday = new Date(today)
     endOfToday.setHours(23, 59, 59, 999)
-    
+
     const tonight = new Date(today)
-    tonight.setHours(18, 0, 0, 0) // 6 PM
+    tonight.setHours(18, 0, 0, 0)
 
     const featured = []
     const tonightEvents = []
@@ -165,15 +200,14 @@ export default function EventsHome() {
 
     filteredEvents.forEach((event) => {
       const eventDate = new Date(event.start_at)
-      
+
       if (eventDate >= today && eventDate <= endOfToday && eventDate >= tonight) {
         tonightEvents.push(event)
       } else if (eventDate > endOfToday) {
         upcoming.push(event)
       }
-      
-      // Featured: public events with high attendance or recent
-      if (event.visibility === 'public' && event.attendees_count > 10) {
+
+      if (event.visibility === 'public' && (event.attendees_count || 0) > 10) {
         featured.push(event)
       }
     })
@@ -181,7 +215,7 @@ export default function EventsHome() {
     return {
       featured: featured.slice(0, 5),
       tonight: tonightEvents,
-      upcoming: upcoming,
+      upcoming,
     }
   }, [filteredEvents])
 
@@ -205,9 +239,9 @@ export default function EventsHome() {
         event={item}
         onPress={() => {
           if (activeTab === 'myEvents') {
-            router.push(`/events/manage/${item.id}`)
+            router.push({ pathname: '/events/manage/[id]', params: { id: item.id } })
           } else {
-            router.push(`/events/${item.id}`)
+            router.push({ pathname: '/events/[id]', params: { id: item.id } })
           }
         }}
         currentUserId={currentUserId}
@@ -232,7 +266,7 @@ export default function EventsHome() {
     return (
       <View style={styles.section}>
         {title && (
-            <ThemedText style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>
+          <ThemedText style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>
             {title}
           </ThemedText>
         )}
@@ -240,7 +274,7 @@ export default function EventsHome() {
           <View key={event.id} style={styles.eventCardWrapper}>
             <EventCard
               event={event}
-              onPress={() => router.push(`/events/${event.id}`)}
+              onPress={() => router.push({ pathname: '/events/[id]', params: { id: event.id } })}
               currentUserId={currentUserId}
             />
           </View>
@@ -249,21 +283,10 @@ export default function EventsHome() {
     )
   }
 
-  // Header content that scrolls with content
   const renderScrollableHeader = () => (
     <>
-      {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <View
-          style={[
-            styles.searchBar,
-            {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
-              borderWidth: StyleSheet.hairlineWidth,
-            },
-          ]}
-        >
+        <View style={[styles.searchBar, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth }]}>
           <Search size={hp(2)} color={theme.colors.textSecondary} strokeWidth={2} />
           <TextInput
             style={styles.searchInput}
@@ -273,139 +296,40 @@ export default function EventsHome() {
             onChangeText={setSearchQuery}
           />
           {searchQuery.length > 0 ? (
-            <TouchableOpacity
-              onPress={() => setSearchQuery('')}
-              style={styles.clearButton}
-            >
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
               <Text style={styles.clearButtonText}>Clear</Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity
-              onPress={() => router.push('/events/create')}
-              style={styles.createEventIconButton}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={() => router.push('/events/create')} style={styles.createEventIconButton} activeOpacity={0.7}>
               <Add size={hp(2.2)} color={theme.colors.accent} strokeWidth={2.5} />
             </TouchableOpacity>
           )}
         </View>
-
-        {/* Compact Controls Row */}
-        <View style={styles.controlsRow}>
-          {/* View Toggle - Compact */}
-          <View
-            style={[
-              styles.viewToggleContainer,
-              {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-                borderWidth: StyleSheet.hairlineWidth,
-              },
-            ]}
-          >
+        {activeTab === 'browse' && (
+          <View style={styles.controlsRow}>
             <TouchableOpacity
-              style={[
-                styles.viewToggleButtonCompact,
-                viewMode === 'list' && { backgroundColor: theme.colors.accent },
-              ]}
-              onPress={() => setViewMode('list')}
-              activeOpacity={0.7}
-            >
-              <List
-                size={hp(1.8)}
-                color={viewMode === 'list' ? '#FFFFFF' : theme.colors.textSecondary}
-                strokeWidth={2}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.viewToggleButtonCompact,
-                viewMode === 'calendar' && { backgroundColor: theme.colors.accent },
-              ]}
-              onPress={() => setViewMode('calendar')}
-              activeOpacity={0.7}
-            >
-              <CalendarIcon
-                size={hp(1.8)}
-                color={viewMode === 'calendar' ? '#FFFFFF' : theme.colors.textSecondary}
-                strokeWidth={2}
-              />
-            </TouchableOpacity>
-          </View>
-
-          {/* Filter Toggle - Only on Browse tab */}
-          {activeTab === 'browse' && (
-            <TouchableOpacity
-              style={[
-                styles.filterToggleButton,
-                {
-                  backgroundColor: showFilters ? theme.colors.accent : theme.colors.surface,
-                  borderColor: theme.colors.border,
-                  borderWidth: StyleSheet.hairlineWidth,
-                },
-              ]}
+              style={[styles.filterToggleButton, { backgroundColor: showFilters ? theme.colors.accent : theme.colors.surface, borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth }]}
               onPress={() => setShowFilters(!showFilters)}
               activeOpacity={0.7}
             >
-              <Text
-                style={[
-                  styles.filterToggleText,
-                  { color: showFilters ? '#FFFFFF' : theme.colors.textPrimary },
-                ]}
-              >
-                Filters
-              </Text>
+              <Text style={[styles.filterToggleText, { color: showFilters ? '#FFFFFF' : theme.colors.textPrimary }]}>Filters</Text>
             </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
       </View>
-
-      {/* Tab Selector */}
-      <View
-        style={[
-          styles.tabContainer,
-          {
-            backgroundColor: 'transparent',
-            borderBottomColor: 'transparent',
-          },
-        ]}
-      >
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabScrollContent}
-        >
+      <View style={[styles.tabContainer, { backgroundColor: 'transparent', borderBottomColor: 'transparent' }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScrollContent}>
           {TAB_OPTIONS.map((tab) => (
             <TouchableOpacity
               key={tab.id}
-              style={[
-                styles.tab,
-                {
-                  backgroundColor:
-                    activeTab === tab.id ? theme.colors.accent : theme.colors.surface,
-                  borderColor: theme.colors.border,
-                  borderWidth: StyleSheet.hairlineWidth,
-                },
-              ]}
+              style={[styles.tab, { backgroundColor: activeTab === tab.id ? theme.colors.accent : theme.colors.surface, borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth }]}
               onPress={() => {
                 setActiveTab(tab.id)
-                if (tab.id !== 'browse') {
-                  setShowFilters(false)
-                }
+                if (tab.id !== 'browse') setShowFilters(false)
               }}
               activeOpacity={0.7}
             >
-              <Text
-                style={[
-                  styles.tabLabel,
-                  {
-                    color:
-                      activeTab === tab.id ? '#FFFFFF' : theme.colors.textPrimary,
-                  },
-                ]}
-              >
-                {tab.label}
-              </Text>
+              <Text style={[styles.tabLabel, { color: activeTab === tab.id ? '#FFFFFF' : theme.colors.textPrimary }]}>{tab.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -425,98 +349,53 @@ export default function EventsHome() {
           titleStyle={{ color: theme.colors.textPrimary }}
           iconColor={theme.colors.textPrimary}
         />
-
-        {/* Filter Chips - Fixed position, only show on Browse tab */}
+        {hasRlsError && (
+          <View style={[styles.rlsWarningBanner, { backgroundColor: theme.colors.warning || '#FFA500' }]}>
+            <Text style={styles.rlsWarningText}>
+              Some events may not be visible. Pull to refresh or try again later.
+            </Text>
+          </View>
+        )}
         {activeTab === 'browse' && showFilters && (
           <View style={styles.filterChipsFixed}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterContainer}
-            >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContainer}>
               {FILTER_CHIPS.map((chip) => (
                 <TouchableOpacity
                   key={chip.id}
-                  style={[
-                    styles.filterChip,
-                    {
-                      backgroundColor:
-                        activeFilter === chip.id ? theme.colors.accent : theme.colors.surface,
-                      borderColor: theme.colors.border,
-                      borderWidth: StyleSheet.hairlineWidth,
-                    },
-                  ]}
+                  style={[styles.filterChip, { backgroundColor: activeFilter === chip.id ? theme.colors.accent : theme.colors.surface, borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth }]}
                   onPress={() => setActiveFilter(chip.id)}
                   activeOpacity={0.7}
                 >
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      {
-                        color:
-                          activeFilter === chip.id ? '#FFFFFF' : theme.colors.textPrimary,
-                      },
-                    ]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit={true}
-                  >
-                    {chip.label}
-                  </Text>
+                  <Text style={[styles.filterChipText, { color: activeFilter === chip.id ? '#FFFFFF' : theme.colors.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit={true}>{chip.label}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
         )}
-
-        {/* Scrollable Content */}
-        {viewMode === 'calendar' ? (
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={true}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-            }
-          >
-            {renderScrollableHeader()}
-            <EventsCalendarView
-              events={filteredEvents}
-              selectedDate={selectedDate}
-              onDateSelect={setSelectedDate}
-              onEventPress={(eventId) => router.push(`/events/${eventId}`)}
-              onAddToCalendar={(eventId) => {
-                console.log('Adding event to calendar:', eventId)
-              }}
-            />
-          </ScrollView>
-        ) : isLoading ? (
+        {isLoading ? (
           <View style={styles.loadingContainer}>
             <Text style={styles.loadingText}>Loading events...</Text>
           </View>
-        ) : filteredEvents.length === 0 ? (
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
+        ) : filteredEvents.length === 0 && !isLoading ? (
+          <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             {renderScrollableHeader()}
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                {activeTab === 'going' && 'No events you\'re going to'}
+              <Text style={[styles.emptyText, { color: theme.colors.textPrimary }]}>
+                {activeTab === 'going' && "No events you're going to"}
                 {activeTab === 'pending' && 'No pending confirmations'}
-                {activeTab === 'myEvents' && 'You haven\'t created any events'}
+                {activeTab === 'myEvents' && "You haven't created any events"}
                 {activeTab === 'browse' && 'No events found'}
               </Text>
-              <Text style={styles.emptySubtext}>
+              <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>
                 {activeTab === 'going' && 'RSVP to events to see them here'}
                 {activeTab === 'pending' && 'Events waiting for approval will appear here'}
                 {activeTab === 'myEvents' && 'Create your first event to get started'}
-                {activeTab === 'browse' && 'Try adjusting your filters or search'}
+                {activeTab === 'browse' && (searchQuery.trim() || activeFilter !== 'all' ? 'Try adjusting your filters or search' : 'Be the first to create an event!')}
               </Text>
-              {activeTab === 'myEvents' && (
-                <TouchableOpacity
-                  style={styles.createFirstButton}
-                  onPress={() => router.push('/events/create')}
+              {(activeTab === 'myEvents' || (activeTab === 'browse' && !searchQuery.trim() && activeFilter === 'all')) && (
+                <TouchableOpacity 
+                  style={[styles.createFirstButton, { backgroundColor: theme.colors.accent }]} 
+                  onPress={() => router.push('/events/create')} 
                   activeOpacity={0.8}
                 >
                   <Text style={styles.createFirstButtonText}>Create Event</Text>
@@ -540,607 +419,61 @@ export default function EventsHome() {
                 ) : <View style={{ paddingTop: hp(1.5) }} />}
               </>
             }
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-            }
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
+            onEndReached={loadMoreEvents}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <View style={{ padding: hp(2), alignItems: 'center' }}>
+                  <Text style={{ color: theme.colors.textSecondary }}>Loading more events...</Text>
+                </View>
+              ) : null
+            }
           />
         )}
-
         <BottomNav />
       </ThemedView>
     </SafeAreaView>
   )
 }
 
-// Events Calendar View Component
-function EventsCalendarView({ events, selectedDate, onDateSelect, onEventPress, onAddToCalendar }) {
-  const theme = useAppTheme()
-  const MONTHS = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ]
-  const DAYS_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
-  const { ChevronLeft, ChevronRight } = require('../../components/Icons')
-
-  const getEventsForDate = (date) => {
-    return events.filter((event) => {
-      const eventDate = new Date(event.start_at)
-      return (
-        eventDate.getDate() === date.getDate() &&
-        eventDate.getMonth() === date.getMonth() &&
-        eventDate.getFullYear() === date.getFullYear()
-      )
-    })
-  }
-
-  const getEventColor = (event) => {
-    if (event.visibility === 'school') return theme.colors.bondedPurple
-    if (event.visibility === 'org_only') return theme.colors.success
-    if (event.visibility === 'invite_only') return theme.colors.warning
-    return theme.colors.bondedPurple
-  }
-
-  const navigateMonth = (direction) => {
-    const newDate = new Date(selectedDate)
-    newDate.setMonth(selectedDate.getMonth() + direction)
-    onDateSelect(newDate)
-  }
-
-  const isToday = (date) => {
-    const today = new Date()
-    return (
-      date.getDate() === today.getDate() &&
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear()
-    )
-  }
-
-  const isSelected = (date) => {
-    return (
-      date.getDate() === selectedDate.getDate() &&
-      date.getMonth() === selectedDate.getMonth() &&
-      date.getFullYear() === selectedDate.getFullYear()
-    )
-  }
-
-  // Generate calendar days
-  const calendarDays = useMemo(() => {
-    const year = selectedDate.getFullYear()
-    const month = selectedDate.getMonth()
-    const firstDay = new Date(year, month, 1)
-    const lastDay = new Date(year, month + 1, 0)
-    const startDate = new Date(firstDay)
-    startDate.setDate(startDate.getDate() - startDate.getDay())
-    
-    const days = []
-    const currentDate = new Date(startDate)
-    
-    for (let i = 0; i < 42; i++) {
-      days.push({
-        day: currentDate.getDate(),
-        date: new Date(currentDate),
-        isCurrentMonth: currentDate.getMonth() === month,
-      })
-      currentDate.setDate(currentDate.getDate() + 1)
-    }
-    
-    return days
-  }, [selectedDate])
-
-  const selectedDayEvents = getEventsForDate(selectedDate)
-
-  return (
-    <View style={styles.calendarContainer}>
-      {/* Month Navigation */}
-      <View style={styles.calendarMonthNavigation}>
-        <TouchableOpacity
-          onPress={() => navigateMonth(-1)}
-          style={styles.calendarNavButton}
-          activeOpacity={0.7}
-        >
-          <ChevronLeft size={hp(2)} color={theme.colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.calendarMonthTitle}>
-          {MONTHS[selectedDate.getMonth()]} {selectedDate.getFullYear()}
-        </Text>
-        <TouchableOpacity
-          onPress={() => navigateMonth(1)}
-          style={styles.calendarNavButton}
-          activeOpacity={0.7}
-        >
-          <ChevronRight size={hp(2)} color={theme.colors.textPrimary} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Calendar Grid */}
-      <View style={styles.calendarGrid}>
-        {DAYS_SHORT.map((day, index) => (
-          <View key={`day-header-${index}`} style={styles.calendarDayHeader}>
-            <Text style={styles.calendarDayHeaderText}>{day}</Text>
-          </View>
-        ))}
-        {calendarDays.map(({ day, isCurrentMonth, date }, index) => {
-          const dayEvents = getEventsForDate(date)
-          const dayIsToday = isToday(date)
-          const dayIsSelected = isSelected(date)
-
-          return (
-            <TouchableOpacity
-              key={index}
-              style={[
-                styles.calendarDayCell,
-                !isCurrentMonth && styles.calendarDayCellOtherMonth,
-                dayIsSelected && styles.calendarDayCellSelected,
-              ]}
-              onPress={() => onDateSelect(date)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.calendarDayNumber,
-                  !isCurrentMonth && styles.calendarDayNumberOtherMonth,
-                  dayIsSelected && styles.calendarDayNumberSelected,
-                ]}
-              >
-                {day}
-              </Text>
-              {dayEvents.length > 0 && (
-                <View style={styles.calendarEventDots}>
-                  {dayEvents.slice(0, 3).map((event, i) => (
-                    <View
-                      key={i}
-                      style={[
-                        styles.calendarEventDot,
-                        { backgroundColor: getEventColor(event) },
-                      ]}
-                    />
-                  ))}
-                  {dayEvents.length > 3 && (
-                    <Text style={styles.calendarEventDotMore}>+{dayEvents.length - 3}</Text>
-                  )}
-                </View>
-              )}
-            </TouchableOpacity>
-          )
-        })}
-      </View>
-
-      {/* Selected Date Events */}
-      {selectedDayEvents.length > 0 && (
-        <View style={styles.calendarEventsList}>
-          <Text style={styles.calendarEventsTitle}>
-            {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </Text>
-          {selectedDayEvents.map((event) => (
-            <TouchableOpacity
-              key={event.id}
-              style={styles.calendarEventItem}
-              onPress={() => onEventPress(event.id)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.calendarEventColorBar, { backgroundColor: getEventColor(event) }]} />
-              <View style={styles.calendarEventContent}>
-                <Text style={styles.calendarEventItemTitle}>{event.title}</Text>
-                <Text style={styles.calendarEventItemTime}>
-                  {new Date(event.start_at).toLocaleTimeString('en-US', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })}
-                  {event.location_name && ` • ${event.location_name}`}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.addToCalendarButton}
-                onPress={() => onAddToCalendar(event.id)}
-                activeOpacity={0.7}
-              >
-                <CalendarIcon size={hp(2)} color={theme.colors.accent} strokeWidth={2} />
-              </TouchableOpacity>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-    </View>
-  )
-}
-
 const createStyles = (theme) => StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
-  searchContainer: {
-    paddingHorizontal: wp(5),
-    paddingTop: hp(0.8),
-    paddingBottom: hp(0.5),
-    gap: hp(0.6),
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.xl,
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(1.2),
-    gap: wp(2),
-    ...theme.shadows.sm,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: hp(1.6),
-    fontFamily: theme.typography.fontFamily.body,
-    color: theme.colors.textPrimary,
-  },
-  clearButton: {
-    paddingHorizontal: wp(2),
-  },
-  clearButtonText: {
-    fontSize: hp(1.4),
-    fontFamily: theme.typography.fontFamily.body,
-    color: theme.colors.accent,
-    fontWeight: '600',
-  },
-  tabContainer: {
-    paddingVertical: hp(0.5),
-  },
-  tabScrollContent: {
-    paddingHorizontal: wp(5),
-    gap: wp(3),
-  },
-  tab: {
-    paddingHorizontal: wp(5),
-    paddingVertical: hp(1.5),
-    borderRadius: theme.radius.xl,
-    marginRight: wp(2),
-    backgroundColor: theme.colors.surface,
-    minHeight: hp(4.4),
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  tabActive: {
-    backgroundColor: theme.colors.accent,
-  },
-  tabLabel: {
-    fontSize: hp(1.5),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-    textAlign: 'center',
-    includeFontPadding: false,
-  },
-  tabLabelActive: {
-    color: theme.colors.white,
-  },
-  filterContainer: {
-    paddingHorizontal: wp(5),
-    paddingVertical: hp(1),
-    paddingRight: wp(5),
-    backgroundColor: theme.colors.background,
-    gap: wp(2.5),
-  },
-  filterChip: {
-    paddingHorizontal: wp(5.5),
-    paddingVertical: hp(1.6),
-    borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 0,
-    minHeight: hp(4.6),
-    minWidth: wp(24),
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  filterChipActive: {
-    backgroundColor: theme.colors.accent,
-    borderColor: theme.colors.accent,
-  },
-  filterChipText: {
-    fontSize: hp(1.5),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-    letterSpacing: 0.2,
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-  },
-  filterChipTextActive: {
-    color: theme.colors.white,
-  },
-  manageButton: {
-    marginTop: hp(1),
-    paddingVertical: hp(1),
-    paddingHorizontal: wp(4),
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radius.lg,
-    alignItems: 'center',
-  },
-  manageButtonText: {
-    fontSize: hp(1.5),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '700',
-    color: theme.colors.white,
-  },
-  listContent: {
-    paddingBottom: hp(12),
-    paddingHorizontal: wp(4),
-  },
-  section: {
-    marginBottom: hp(3),
-  },
-  sectionTitle: {
-    fontSize: hp(2.2),
-    fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '700',
-    color: theme.colors.textPrimary,
-    paddingHorizontal: wp(5),
-    marginBottom: hp(1.5),
-  },
-  horizontalList: {
-    paddingHorizontal: wp(4),
-    gap: wp(3),
-  },
-  eventCardWrapper: {
-    paddingHorizontal: wp(4),
-    marginBottom: hp(2),
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: hp(10),
-  },
-  loadingText: {
-    fontSize: hp(1.8),
-    fontFamily: theme.typography.fontFamily.body,
-    color: theme.colors.textSecondary,
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: hp(10),
-    paddingHorizontal: wp(4),
-  },
-  emptyText: {
-    fontSize: hp(2),
-    fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-    marginBottom: hp(1),
-  },
-  emptySubtext: {
-    fontSize: hp(1.5),
-    fontFamily: theme.typography.fontFamily.body,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-    marginTop: hp(0.5),
-  },
-  createFirstButton: {
-    marginTop: hp(3),
-    backgroundColor: theme.colors.accent,
-    paddingHorizontal: wp(6),
-    paddingVertical: hp(1.5),
-    borderRadius: theme.radius.xl,
-  },
-  createFirstButtonText: {
-    fontSize: hp(1.7),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '700',
-    color: theme.colors.white,
-  },
-  createEventIconButton: {
-    padding: hp(0.5),
-  },
-  controlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: wp(2.5),
-  },
-  viewToggleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: wp(1),
-    backgroundColor: theme.colors.surface,
-    paddingVertical: hp(0.8),
-    paddingHorizontal: wp(1.5),
-    borderRadius: theme.radius.xl,
-    ...theme.shadows.sm,
-  },
-  viewToggleButtonCompact: {
-    padding: hp(0.8),
-    borderRadius: theme.radius.lg,
-    backgroundColor: theme.colors.surface,
-  },
-  filterToggleButton: {
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(0.8),
-    borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surface,
-    ...theme.shadows.sm,
-  },
-  filterToggleText: {
-    fontSize: hp(1.4),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-  },
-  viewToggleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: hp(1),
-    paddingHorizontal: wp(3),
-    borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surface,
-    gap: wp(1),
-  },
-  viewToggleButtonActive: {
-    backgroundColor: theme.colors.accent,
-  },
-  viewToggleText: {
-    fontSize: hp(1.5),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textSecondary,
-  },
-  viewToggleTextActive: {
-    color: theme.colors.white,
-  },
-  calendarContainer: {
-    backgroundColor: theme.colors.background,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: hp(12),
-  },
-  filterChipsFixed: {
-    backgroundColor: theme.colors.background,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: theme.colors.border,
-    zIndex: 10,
-  },
-  calendarMonthNavigation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(1.5),
-    backgroundColor: theme.colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  calendarNavButton: {
-    padding: hp(0.5),
-  },
-  calendarMonthTitle: {
-    fontSize: hp(2),
-    fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '700',
-    color: theme.colors.textPrimary,
-  },
-  calendarGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: wp(2),
-    paddingTop: hp(1),
-    backgroundColor: theme.colors.background,
-  },
-  calendarDayHeader: {
-    width: '14.28%',
-    alignItems: 'center',
-    paddingVertical: hp(0.8),
-  },
-  calendarDayHeaderText: {
-    fontSize: hp(1.3),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textSecondary,
-  },
-  calendarDayCell: {
-    width: '14.28%',
-    aspectRatio: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: hp(0.5),
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  calendarDayCellOtherMonth: {
-    opacity: 0.3,
-  },
-  calendarDayCellSelected: {
-    backgroundColor: theme.colors.accent + '20',
-    borderRadius: theme.radius.md,
-    borderColor: theme.colors.accent,
-  },
-  calendarDayNumber: {
-    fontSize: hp(1.5),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-  },
-  calendarDayNumberOtherMonth: {
-    color: theme.colors.textSecondary,
-  },
-  calendarDayNumberSelected: {
-    color: theme.colors.accent,
-    fontWeight: '700',
-  },
-  calendarEventDots: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: wp(0.5),
-    marginTop: hp(0.2),
-    width: '100%',
-  },
-  calendarEventDot: {
-    width: wp(1.5),
-    height: wp(1.5),
-    borderRadius: wp(0.75),
-  },
-  calendarEventDotMore: {
-    fontSize: hp(1),
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fontFamily.body,
-  },
-  calendarEventsList: {
-    paddingHorizontal: wp(4),
-    paddingTop: hp(2),
-    paddingBottom: hp(2),
-  },
-  calendarEventsTitle: {
-    fontSize: hp(1.8),
-    fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '700',
-    color: theme.colors.textPrimary,
-    marginBottom: hp(1.5),
-  },
-  calendarEventItem: {
-    flexDirection: 'row',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    marginBottom: hp(1),
-    padding: wp(3),
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-  },
-  calendarEventColorBar: {
-    width: wp(1),
-    height: '100%',
-    borderRadius: theme.radius.pill,
-    marginRight: wp(2),
-  },
-  calendarEventContent: {
-    flex: 1,
-  },
-  calendarEventItemTitle: {
-    fontSize: hp(1.7),
-    fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-    marginBottom: hp(0.3),
-  },
-  calendarEventItemTime: {
-    fontSize: hp(1.4),
-    fontFamily: theme.typography.fontFamily.body,
-    color: theme.colors.textSecondary,
-  },
-  addToCalendarButton: {
-    padding: hp(0.8),
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface,
-  },
+  safeArea: { flex: 1 },
+  container: { flex: 1 },
+  searchContainer: { paddingHorizontal: theme.spacing.xl, paddingTop: hp(0.4), paddingBottom: theme.spacing.xs, gap: theme.spacing.xs },
+  searchBar: { flexDirection: 'row', alignItems: 'center', borderRadius: theme.radius.xl, paddingHorizontal: wp(4), paddingVertical: hp(1.2), gap: wp(2), ...theme.shadows.sm },
+  searchInput: { flex: 1, fontSize: hp(1.6), fontFamily: theme.typography.fontFamily.body, color: theme.colors.textPrimary },
+  clearButton: { paddingHorizontal: wp(2) },
+  clearButtonText: { fontSize: hp(1.4), fontFamily: theme.typography.fontFamily.body, color: theme.colors.accent, fontWeight: '600' },
+  tabContainer: { paddingVertical: hp(0.5) },
+  tabScrollContent: { paddingHorizontal: wp(5), gap: wp(3) },
+  tab: { paddingHorizontal: wp(5), paddingVertical: hp(1.5), borderRadius: theme.radius.xl, marginRight: wp(2), backgroundColor: theme.colors.surface, minHeight: hp(4.4), justifyContent: 'center', alignItems: 'center' },
+  tabLabel: { fontSize: hp(1.5), fontFamily: theme.typography.fontFamily.body, fontWeight: '600', color: theme.colors.textPrimary, textAlign: 'center', includeFontPadding: false },
+  filterContainer: { paddingHorizontal: theme.spacing.xl, paddingVertical: hp(0.8), paddingRight: theme.spacing.xl, backgroundColor: theme.colors.background, gap: theme.spacing.md },
+  filterChip: { paddingHorizontal: theme.spacing.xl, paddingVertical: hp(1.3), borderRadius: theme.radius.xl, backgroundColor: theme.colors.surface, borderWidth: 0, minHeight: hp(4), minWidth: wp(24), justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  filterChipText: { fontSize: hp(1.5), fontFamily: theme.typography.fontFamily.body, fontWeight: '600', color: theme.colors.textPrimary, letterSpacing: 0.2, includeFontPadding: false, textAlignVertical: 'center' },
+  manageButton: { marginTop: hp(1), paddingVertical: hp(1), paddingHorizontal: wp(4), backgroundColor: theme.colors.accent, borderRadius: theme.radius.lg, alignItems: 'center' },
+  manageButtonText: { fontSize: hp(1.5), fontFamily: theme.typography.fontFamily.body, fontWeight: '700', color: theme.colors.white },
+  listContent: { paddingBottom: hp(12), paddingHorizontal: wp(4) },
+  section: { marginBottom: hp(3) },
+  sectionTitle: { fontSize: hp(2.2), fontFamily: theme.typography.fontFamily.heading, fontWeight: '700', color: theme.colors.textPrimary, paddingHorizontal: wp(5), marginBottom: hp(1.5) },
+  eventCardWrapper: { paddingHorizontal: wp(4), marginBottom: hp(2) },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: hp(10) },
+  loadingText: { fontSize: hp(1.8), fontFamily: theme.typography.fontFamily.body, color: theme.colors.textSecondary },
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: hp(10), paddingHorizontal: wp(4) },
+  emptyText: { fontSize: hp(2), fontFamily: theme.typography.fontFamily.heading, fontWeight: '600', color: theme.colors.textPrimary, marginBottom: hp(1) },
+  emptySubtext: { fontSize: hp(1.5), fontFamily: theme.typography.fontFamily.body, color: theme.colors.textSecondary, textAlign: 'center', marginTop: hp(0.5) },
+  createFirstButton: { marginTop: hp(3), backgroundColor: theme.colors.accent, paddingHorizontal: wp(6), paddingVertical: hp(1.5), borderRadius: theme.radius.xl },
+  createFirstButtonText: { fontSize: hp(1.7), fontFamily: theme.typography.fontFamily.body, fontWeight: '700', color: theme.colors.white },
+  createEventIconButton: { padding: hp(0.5) },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: wp(2.5), justifyContent: 'flex-end' },
+  filterToggleButton: { paddingHorizontal: wp(4), paddingVertical: hp(0.8), borderRadius: theme.radius.xl, backgroundColor: theme.colors.surface, ...theme.shadows.sm },
+  filterToggleText: { fontSize: hp(1.4), fontFamily: theme.typography.fontFamily.body, fontWeight: '600', color: theme.colors.textPrimary },
+  filterChipsFixed: { backgroundColor: theme.colors.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, zIndex: 10 },
+  scrollView: { flex: 1 },
+  scrollContent: { paddingBottom: hp(12) },
+  rlsWarningBanner: { paddingVertical: hp(1), paddingHorizontal: wp(4), alignItems: 'center' },
+  rlsWarningText: { fontSize: hp(1.4), fontFamily: theme.typography.fontFamily.body, color: '#FFFFFF', textAlign: 'center' },
 })
-

@@ -1,77 +1,132 @@
-import { View, Text, StyleSheet, ScrollView } from 'react-native'
-import React from 'react'
-import { Ionicons } from '@expo/vector-icons'
-import { ONBOARDING_THEME } from '../../../constants/onboardingTheme'
-import { hp, wp } from '../../../helpers/common'
+/**
+ * Class Schedule Step - Main component managing schedule import flow
+ * Flow: Upload -> Edit -> Confirm -> Save
+ */
 
-const ClassScheduleStep = ({ formData, updateFormData, onScroll }) => {
-  const styles = createStyles(ONBOARDING_THEME)
-  return (
-    <ScrollView 
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={false}
-      onScroll={onScroll}
-      scrollEventThrottle={16}
-    >
-      <View style={styles.iconContainer}>
-        <Ionicons 
-          name="calendar-outline" 
-          size={hp(12)} 
-          color="#A45CFF40" 
-        />
-      </View>
-      
-      <Text style={styles.title}>Class Schedule</Text>
-      <Text style={styles.subtitle}>Coming Soon</Text>
-      <Text style={styles.description}>
-        We're working on a feature to help you find classmates and study partners based on your schedule. Stay tuned!
-      </Text>
-    </ScrollView>
-  )
+import { useRouter } from 'expo-router'
+import React, { useState } from 'react'
+import { Alert, StyleSheet, View } from 'react-native'
+import { useCurrentUserProfile } from '../../../hooks/useCurrentUserProfile'
+import { useSaveSchedule } from '../../../hooks/useSaveSchedule'
+import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
+import ScheduleConfirmStep from './ScheduleConfirmStep'
+import ScheduleEditStep from './ScheduleEditStep'
+import ScheduleUploadStep from './ScheduleUploadStep'
+
+const SCHEDULE_STEPS = {
+  UPLOAD: 'upload',
+  EDIT: 'edit',
+  CONFIRM: 'confirm',
 }
 
-export default ClassScheduleStep
+export default function ClassScheduleStep({ formData, updateFormData, onScroll }) {
+  const [currentStep, setCurrentStep] = useState(SCHEDULE_STEPS.UPLOAD)
+  const [parsedSchedule, setParsedSchedule] = useState(
+    formData.parsedSchedule || null
+  )
+  const [editedCourses, setEditedCourses] = useState([])
 
-const createStyles = () => StyleSheet.create({
+  const { data: userProfile } = useCurrentUserProfile()
+  const { mutate: saveSchedule, isPending: isSaving } = useSaveSchedule()
+  const router = useRouter()
+
+  const handleScheduleParsed = (schedule) => {
+    if (schedule && schedule.courses.length > 0) {
+      setParsedSchedule(schedule)
+      setEditedCourses(schedule.courses)
+      setCurrentStep(SCHEDULE_STEPS.EDIT)
+    } else {
+      // User skipped - mark step as complete and continue
+      updateFormData(ONBOARDING_STEPS.CLASS_SCHEDULE, {
+        scheduleImageUri: null,
+        parsedSchedule: null,
+      })
+    }
+  }
+
+  const handleEditSave = (courses) => {
+    setEditedCourses(courses)
+    setCurrentStep(SCHEDULE_STEPS.CONFIRM)
+  }
+
+  const handleConfirm = async (selectedSections) => {
+    if (!userProfile?.university_id) {
+      Alert.alert('Error', 'University information is required. Please complete your profile first.')
+      return
+    }
+
+    saveSchedule(
+      {
+        courses: editedCourses,
+        selectedSections: Array.from(selectedSections),
+        universityId: userProfile.university_id,
+      },
+      {
+        onSuccess: () => {
+          // Update form data
+          updateFormData(ONBOARDING_STEPS.CLASS_SCHEDULE, {
+            scheduleImageUri: formData.scheduleImageUri,
+            parsedSchedule: parsedSchedule,
+            courses: editedCourses,
+            selectedSections: Array.from(selectedSections),
+          })
+
+          Alert.alert('Success', 'Your schedule has been saved!', [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Step is complete, onboarding flow will continue
+              },
+            },
+          ])
+        },
+        onError: (error) => {
+          console.error('Error saving schedule:', error)
+          Alert.alert(
+            'Error',
+            error instanceof Error ? error.message : 'Failed to save schedule. Please try again.'
+          )
+        },
+      }
+    )
+  }
+
+  const renderCurrentStep = () => {
+    switch (currentStep) {
+      case SCHEDULE_STEPS.UPLOAD:
+        return (
+          <ScheduleUploadStep
+            formData={formData}
+            updateFormData={updateFormData}
+            onScroll={onScroll}
+            onScheduleParsed={handleScheduleParsed}
+          />
+        )
+
+      case SCHEDULE_STEPS.EDIT:
+        return (
+          <ScheduleEditStep courses={editedCourses} onSave={handleEditSave} onScroll={onScroll} />
+        )
+
+      case SCHEDULE_STEPS.CONFIRM:
+        return (
+          <ScheduleConfirmStep
+            courses={editedCourses}
+            onConfirm={handleConfirm}
+            onScroll={onScroll}
+          />
+        )
+
+      default:
+        return null
+    }
+  }
+
+  return <View style={styles.container}>{renderCurrentStep()}</View>
+}
+
+const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  contentContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: hp(4),
-    paddingHorizontal: wp(8),
-  },
-  iconContainer: {
-    marginBottom: hp(4),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: hp(4),
-    fontWeight: '800',
-    color: '#1A1A1A',
-    fontFamily: 'System',
-    marginBottom: hp(2),
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: hp(3),
-    fontWeight: '700',
-    color: '#A45CFF',
-    fontFamily: 'System',
-    marginBottom: hp(3),
-    textAlign: 'center',
-  },
-  description: {
-    fontSize: hp(2.2),
-    color: '#8E8E8E',
-    fontFamily: 'System',
-    textAlign: 'center',
-    lineHeight: hp(3.2),
-    opacity: 0.8,
-  },
 })
-

@@ -1,5 +1,5 @@
 import React from 'react'
-import { View, ScrollView, TouchableOpacity, Text, StyleSheet, Platform } from 'react-native'
+import { View, ScrollView, TouchableOpacity, Text, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import StoryCircle from './StoryCircle'
 import { hp, wp } from '../../helpers/common'
@@ -96,50 +96,51 @@ const createStyles = (theme) => StyleSheet.create({
   wrapper: {
     backgroundColor: theme.colors.background,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
+    borderBottomColor: theme.colors.border,
     width: '100%',
-    paddingVertical: hp(1.5),
+    paddingVertical: hp(1),
   },
   scrollView: {
     flexGrow: 0,
   },
   container: {
-    paddingHorizontal: wp(4),
-    paddingRight: wp(6),
+    paddingHorizontal: theme.spacing.md,
+    paddingRight: theme.spacing.lg,
     alignItems: 'center',
     flexDirection: 'row',
+    gap: theme.spacing.sm,
   },
   createStoryItem: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: wp(4),
+    marginRight: theme.spacing.xs,
   },
   createStoryCircle: {
-    width: hp(8),
-    height: hp(8),
-    borderRadius: hp(4),
-    backgroundColor: theme.colors.background,
-    borderWidth: 3,
-    borderColor: theme.colors.bondedPurple,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: hp(1),
-  },
-  createStoryInner: {
     width: hp(7),
     height: hp(7),
     borderRadius: hp(3.5),
+    backgroundColor: theme.colors.background,
+    borderWidth: 3,
+    borderColor: theme.colors.border,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: hp(0.7),
+  },
+  createStoryInner: {
+    width: hp(6),
+    height: hp(6),
+    borderRadius: hp(3),
     backgroundColor: theme.colors.backgroundSecondary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   createStoryLabel: {
-    fontSize: hp(1.5),
+    fontSize: hp(1.4),
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
-    maxWidth: wp(22),
+    maxWidth: wp(18),
     textAlign: 'center',
   },
 })

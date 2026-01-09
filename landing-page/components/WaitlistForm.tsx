@@ -10,7 +10,7 @@ interface WaitlistFormProps {
 
 const SCHOOLS = [
   'University of Rhode Island',
-  'Brown University',
+  'Brown Universi~ty',
   'Rhode Island College',
   'Other',
 ]
@@ -199,6 +199,13 @@ export default function WaitlistForm({ variant = 'hero' }: WaitlistFormProps) {
     </motion.form>
   )
 }
+
+
+
+
+
+
+
 
 
 

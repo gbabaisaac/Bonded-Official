@@ -1,27 +1,30 @@
-import { View, StyleSheet, ImageBackground, TouchableWithoutFeedback, Keyboard } from 'react-native'
-import React, { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'expo-router'
-import ScreenWrapper from '../components/ScreenWrapper'
 import { StatusBar } from 'expo-status-bar'
-import { useOnboardingStore, ONBOARDING_STEPS } from '../stores/onboardingStore'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Alert, ImageBackground, Keyboard, StyleSheet, Text, useColorScheme, View } from 'react-native'
+import ScreenWrapper from '../components/ScreenWrapper'
 import { useSaveOnboarding } from '../hooks/useSaveOnboarding'
+import { ONBOARDING_STEPS, STEP_METADATA, useOnboardingStore, getActiveOnboardingSteps } from '../stores/onboardingStore'
+import { useThemeMode } from './theme'
 // Onboarding always uses light mode - don't use dynamic theme
-import { hp, wp } from '../helpers/common'
 import BackButton from '../components/BackButton'
-import ProgressBar from '../components/onboarding/ProgressBar'
-import PhotoSelectionStep from '../components/onboarding/steps/PhotoSelectionStep'
+import OnboardingCarousel from '../components/onboarding/OnboardingCarousel'
+import OnboardingNavigation from '../components/onboarding/OnboardingNavigation'
 import BasicInfoStep from '../components/onboarding/steps/BasicInfoStep'
+import ClassScheduleStep from '../components/onboarding/steps/ClassScheduleStep'
 import InterestsStep from '../components/onboarding/steps/InterestsStep'
-import StudyHabitsStep from '../components/onboarding/steps/StudyHabitsStep'
 import LivingHabitsStep from '../components/onboarding/steps/LivingHabitsStep'
 import PersonalityStep from '../components/onboarding/steps/PersonalityStep'
-import ClassScheduleStep from '../components/onboarding/steps/ClassScheduleStep'
-import OnboardingNavigation from '../components/onboarding/OnboardingNavigation'
+import PhotoSelectionStep from '../components/onboarding/steps/PhotoSelectionStep'
+import StudyHabitsStep from '../components/onboarding/steps/StudyHabitsStep'
 import { ONBOARDING_THEME } from '../constants/onboardingTheme'
+import { hp, wp } from '../helpers/common'
 
 export default function Onboarding() {
   const styles = createStyles(ONBOARDING_THEME)
   const router = useRouter()
+  const { setMode } = useThemeMode()
+  const systemScheme = useColorScheme() || 'light'
   const { 
     currentStep, 
     formData, 
@@ -36,35 +39,82 @@ export default function Onboarding() {
   
   const { mutate: saveOnboarding, isPending: isSaving } = useSaveOnboarding()
   const [isScrollingDown, setIsScrollingDown] = useState(false)
+  const [showCelebration, setShowCelebration] = useState(false)
   const lastScrollY = useRef(0)
 
-  // Auto-save when form data changes (debounced)
+  // Force light mode while onboarding is displayed, then restore system preference
+  // Use useLayoutEffect to ensure theme changes BEFORE render
+  useLayoutEffect(() => {
+    setMode('light')
+    return () => {
+      setMode(systemScheme)
+    }
+  }, [setMode, systemScheme])
+
+  // Auto-save when form data changes (debounced) - save partial data always
   useEffect(() => {
+    // Only save if we have at least some data (basic info started)
+    if (!formData.school && !formData.age && !formData.grade && !formData.major && !formData.photos?.length) {
+      return // Don't save empty state
+    }
+
+    // Don't trigger auto-save if a save is already in progress
+    if (isSaving) {
+      console.log('⏳ Skipping auto-save - save already in progress')
+      return
+    }
+
     const timer = setTimeout(() => {
-      if (canAccessApp) {
-        saveOnboarding({
-          formData,
-          completedSteps,
-          completionPercentage,
-        })
+      // Double-check isSaving hasn't changed during debounce period
+      if (isSaving) {
+        console.log('⏳ Skipping auto-save - save started during debounce')
+        return
       }
-    }, 1000) // Debounce: save 1 second after last change
+
+      console.log('💾 Auto-saving onboarding progress:', {
+        completionPercentage,
+        completedSteps: completedSteps.length,
+        hasBasicInfo: !!(formData.school && formData.age && formData.grade && formData.major),
+        hasPhotos: !!(formData.photos?.length > 0),
+      })
+
+      saveOnboarding({
+        formData,
+        completedSteps,
+        completionPercentage,
+      }, {
+        onSuccess: (result) => {
+          console.log('✅ Onboarding progress saved')
+          // Show alert if photo upload had issues
+          if (result?.photoUploadError) {
+            Alert.alert(
+              'Photo Upload Issue',
+              result.photoUploadError,
+              [{ text: 'OK' }]
+            )
+          }
+        },
+        onError: (error) => {
+          console.error('❌ Failed to save onboarding progress:', error)
+        }
+      })
+    }, 2000) // Debounce: save 2 seconds after last change
 
     return () => clearTimeout(timer)
-  }, [formData, completedSteps, completionPercentage])
+  }, [formData, completedSteps, completionPercentage, saveOnboarding, isSaving])
 
   const handleContinue = async () => {
     // If on photos step, upload photos before continuing
     if (currentStep === ONBOARDING_STEPS.PHOTOS && formData.photos?.length > 0) {
       try {
         // Upload photos via saveOnboarding
-        await new Promise((resolve, reject) => {
+        const result = await new Promise((resolve, reject) => {
           saveOnboarding(
             { formData, completedSteps, completionPercentage },
             {
-              onSuccess: () => {
+              onSuccess: (data) => {
                 markStepComplete(currentStep)
-                resolve()
+                resolve(data)
               },
               onError: (error) => {
                 console.error('Error uploading photos:', error)
@@ -73,17 +123,35 @@ export default function Onboarding() {
             }
           )
         })
+
+        // Show alert if photo upload had issues but still allow continuation
+        if (result?.photoUploadError) {
+          Alert.alert(
+            'Photo Upload Issue',
+            result.photoUploadError,
+            [{ text: 'Continue Anyway' }]
+          )
+        }
       } catch (error) {
         console.error('Failed to upload photos:', error)
-        // Continue anyway - photos will be uploaded on next save
+        // Show user-friendly error and allow them to continue
+        Alert.alert(
+          'Photo Upload Failed',
+          'Your photos could not be uploaded. You can continue and we will try again later, or go back to retry.',
+          [
+            { text: 'Go Back', style: 'cancel' },
+            { text: 'Continue Anyway', onPress: () => markStepComplete(currentStep) }
+          ]
+        )
+        return // Don't auto-advance, let the user decide
       }
     } else {
       // Mark current step as complete
       markStepComplete(currentStep)
     }
     
-    // Get next step in sequence (not just next incomplete)
-    const steps = Object.values(ONBOARDING_STEPS)
+    // Get next step in sequence (only active steps, excluding intro)
+    const steps = getActiveOnboardingSteps()
     const currentStepIndex = steps.indexOf(currentStep)
     
     if (currentStepIndex < steps.length - 1) {
@@ -94,13 +162,25 @@ export default function Onboarding() {
       setIsScrollingDown(false)
       lastScrollY.current = 0
     } else {
-      // All steps complete - navigate to Yearbook (home)
-      router.replace('/yearbook')
+      // All steps complete - show celebration
+      setShowCelebration(true)
     }
   }
 
+  const handleCelebrationContinue = () => {
+    setShowCelebration(false)
+    router.replace('/yearbook')
+  }
+
+
   const handleBack = () => {
-    const steps = Object.values(ONBOARDING_STEPS)
+    // If on first step (Basic Info), go back to previous screen
+    if (currentStep === ONBOARDING_STEPS.BASIC_INFO) {
+      router.back()
+      return
+    }
+
+    const steps = getActiveOnboardingSteps()
     const stepIndex = steps.indexOf(currentStep)
     
     if (stepIndex > 0) {
@@ -111,24 +191,11 @@ export default function Onboarding() {
       setIsScrollingDown(false)
       lastScrollY.current = 0
     } else {
-      // If on first step, go back to previous screen (OTP/Login)
+      // If on first step, go back to previous screen
       router.back()
     }
   }
 
-  const handleFinishLater = () => {
-    // Save current progress
-    saveOnboarding({
-      formData,
-      completedSteps,
-      completionPercentage,
-    }, {
-      onSuccess: () => {
-        // Navigate to Yearbook (home)
-        router.replace('/yearbook')
-      }
-    })
-  }
 
   // Handle scroll to show/hide back button
   const handleScroll = (event) => {
@@ -151,10 +218,10 @@ export default function Onboarding() {
     }
     
     switch (currentStep) {
-      case ONBOARDING_STEPS.PHOTOS:
-        return <PhotoSelectionStep {...commonProps} />
       case ONBOARDING_STEPS.BASIC_INFO:
         return <BasicInfoStep {...commonProps} />
+      case ONBOARDING_STEPS.PHOTOS:
+        return <PhotoSelectionStep {...commonProps} />
       case ONBOARDING_STEPS.INTERESTS:
         return <InterestsStep {...commonProps} />
       case ONBOARDING_STEPS.STUDY_HABITS:
@@ -166,15 +233,69 @@ export default function Onboarding() {
       case ONBOARDING_STEPS.CLASS_SCHEDULE:
         return <ClassScheduleStep {...commonProps} />
       default:
-        return <PhotoSelectionStep {...commonProps} />
+        return <BasicInfoStep {...commonProps} />
     }
   }
 
-  const isFirstStep = currentStep === ONBOARDING_STEPS.PHOTOS
-  // Can continue if: photos step has at least 1 photo, or other steps are complete
-  const canContinue = 
+  const stepMetadata = STEP_METADATA[currentStep] || {}
+  const isFirstStep = currentStep === ONBOARDING_STEPS.BASIC_INFO
+  const orderedSteps = getActiveOnboardingSteps()
+  const currentStepIndex = orderedSteps.indexOf(currentStep)
+
+  const renderStepPills = () => (
+    <View style={styles.stepPillsContainer}>
+      {orderedSteps.map((step, idx) => {
+        const isActive = step === currentStep
+        const isCompleted = completedSteps.includes(step)
+        return (
+          <View
+            key={step}
+            style={[
+              styles.stepPill,
+              isActive && styles.stepPillActive,
+              isCompleted && !isActive && styles.stepPillCompleted,
+            ]}
+          >
+            <Text style={[styles.stepPillText, isActive && styles.stepPillTextActive]}>
+              {idx + 1}
+            </Text>
+          </View>
+        )
+      })}
+    </View>
+  )
+  
+  // Can continue logic - all steps require validation
+  const canContinue =
+    (currentStep === ONBOARDING_STEPS.BASIC_INFO &&
+     formData.school && formData.age && formData.grade && formData.gender && formData.major && formData.fullName && formData.username) ||
     (currentStep === ONBOARDING_STEPS.PHOTOS && formData.photos?.length > 0) ||
-    (currentStep !== ONBOARDING_STEPS.PHOTOS && canAccessApp)
+    (currentStep === ONBOARDING_STEPS.INTERESTS && formData.interests?.length > 0) ||
+    (currentStep === ONBOARDING_STEPS.CLASS_SCHEDULE && formData.classSchedule?.courses?.length > 0) ||
+    (currentStep === ONBOARDING_STEPS.STUDY_HABITS &&
+     formData.studyHabits?.preferredStudyTime && formData.studyHabits?.studyLocation &&
+     formData.studyHabits?.studyStyle && formData.studyHabits?.noiseLevel) ||
+    (currentStep === ONBOARDING_STEPS.LIVING_HABITS &&
+     formData.livingHabits?.sleepSchedule && formData.livingHabits?.cleanliness &&
+     formData.livingHabits?.socialLevel && formData.livingHabits?.guests) ||
+    (currentStep === ONBOARDING_STEPS.PERSONALITY &&
+     Object.keys(formData.personalityAnswers || {}).length > 0)
+
+  // Show celebration screen
+  if (showCelebration) {
+    return (
+      <ImageBackground
+        source={require('../assets/images/bonded-gradient.jpg')}
+        style={styles.background}
+        resizeMode='cover'
+      >
+        <ScreenWrapper bg='transparent'>
+          <StatusBar style='light' />
+          <OnboardingCarousel onContinue={handleCelebrationContinue} />
+        </ScreenWrapper>
+      </ImageBackground>
+    )
+  }
 
   return (
     <ImageBackground
@@ -186,30 +307,26 @@ export default function Onboarding() {
         <StatusBar style='light' />
         <BackButton onPress={handleBack} visible={!isScrollingDown} theme={ONBOARDING_THEME} />
         
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.container}>
-            {/* Step Content - Conditional rendering */}
-            <View style={styles.stepContainer}>
-              {renderStepContent()}
-            </View>
-
-            {/* Navigation Buttons - Fixed at bottom with step indicator */}
-            <OnboardingNavigation
-              isFirstStep={isFirstStep}
-              canContinue={canContinue}
-              onContinue={handleContinue}
-              onBack={handleBack}
-              onFinishLater={handleFinishLater}
-              isSaving={isSaving}
-              stepIndicator={
-                <ProgressBar 
-                  currentStep={currentStep}
-                  completionPercentage={completionPercentage}
-                />
-              }
-            />
+        {/* Step Progress at Top */}
+        <View style={styles.stepProgressBar}>
+          {renderStepPills()}
+        </View>
+        
+        <View style={styles.container}>
+          {/* Step Content - Conditional rendering */}
+          <View style={styles.stepContainer}>
+            {renderStepContent()}
           </View>
-        </TouchableWithoutFeedback>
+
+          {/* Navigation Buttons - Fixed at bottom */}
+          <OnboardingNavigation
+            isFirstStep={isFirstStep}
+            canContinue={canContinue}
+            onContinue={handleContinue}
+            onBack={handleBack}
+            isSaving={isSaving}
+          />
+        </View>
       </ScreenWrapper>
     </ImageBackground>
   )
@@ -220,15 +337,58 @@ const createStyles = () => StyleSheet.create({
     flex: 1,
     width: '100%',
   },
+  stepProgressBar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: hp(7), // Account for safe area + back button
+    paddingBottom: hp(1),
+  },
   container: {
     flex: 1,
     paddingHorizontal: wp(6),
-    paddingTop: hp(6), // Increased top padding to start content lower
+    paddingTop: hp(1),
   },
   stepContainer: {
     flex: 1,
+    minHeight: 0, // Allow ScrollView inside to flex/scroll
+    // Remove justifyContent to allow ScrollView to work properly
+  },
+  stepPillsContainer: {
+    flexDirection: 'row',
     justifyContent: 'center',
-    paddingTop: hp(2), // Additional padding for content
+    alignItems: 'center',
+    gap: wp(1.5),
+  },
+  stepPill: {
+    width: hp(3.2),
+    height: hp(3.2),
+    borderRadius: hp(1.6),
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepPillActive: {
+    backgroundColor: '#A45CFF',
+    borderColor: '#A45CFF',
+    shadowColor: '#A45CFF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  stepPillCompleted: {
+    backgroundColor: 'rgba(164, 92, 255, 0.3)',
+    borderColor: 'rgba(164, 92, 255, 0.5)',
+  },
+  stepPillText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontWeight: '700',
+    fontSize: hp(1.4),
+  },
+  stepPillTextActive: {
+    color: '#FFFFFF',
+    fontSize: hp(1.5),
   },
 })
-

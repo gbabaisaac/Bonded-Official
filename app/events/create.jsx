@@ -10,22 +10,32 @@ import {
   Image,
   Modal,
   Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import * as ImagePicker from 'expo-image-picker'
-// import * as Location from 'expo-location' // Uncomment when expo-location is installed
 import { hp, wp } from '../../helpers/common'
+import { geocodeLocation, getStaticMapUrlWithCoords } from '../../helpers/mapUtils'
 import { useAppTheme } from '../theme'
 import { Calendar as CalendarIcon, MapPin, ChevronRight, Users, Lock } from '../../components/Icons'
+import { useCreateEvent } from '../../hooks/events/useCreateEvent'
+import { useAuthStore } from '../../stores/authStore'
+import { supabase } from '../../lib/supabase'
+import { createSignedUrlForPath, uploadImageToBondedMedia } from '../../helpers/mediaStorage'
 
 export default function CreateEvent() {
   const theme = useAppTheme()
   const styles = createStyles(theme)
   const router = useRouter()
+  const { user } = useAuthStore()
+  const createEventMutation = useCreateEvent()
 
   const [eventName, setEventName] = useState('')
+  const [description, setDescription] = useState('')
   const [eventDate, setEventDate] = useState(new Date())
   const [eventTime, setEventTime] = useState(new Date())
   const [endTime, setEndTime] = useState(new Date())
@@ -40,26 +50,42 @@ export default function CreateEvent() {
   const [selectedInvitees, setSelectedInvitees] = useState([])
   const [locationCoords, setLocationCoords] = useState(null)
   const [showLocationPicker, setShowLocationPicker] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [mapPreviewUrl, setMapPreviewUrl] = useState(null)
+  const [isGeocoding, setIsGeocoding] = useState(false)
 
   const pickImage = async () => {
     try {
+      // Request permissions
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      
       if (!permission.granted) {
+        Alert.alert(
+          'Permission Required',
+          'We need access to your photo library to add an event image. Please enable it in your device settings.',
+          [{ text: 'OK' }]
+        )
         return
       }
 
+      // Launch image picker
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaType.Images,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [16, 9],
         quality: 0.8,
       })
 
-      if (!result.canceled && result.assets?.[0]) {
+      if (!result.canceled && result.assets && result.assets.length > 0) {
         setEventImage(result.assets[0].uri)
       }
     } catch (error) {
-      console.log('Image picker error:', error)
+      console.error('Image picker error:', error)
+      Alert.alert(
+        'Error',
+        'Failed to open image picker. Please try again.',
+        [{ text: 'OK' }]
+      )
     }
   }
 
@@ -79,14 +105,142 @@ export default function CreateEvent() {
   }
 
   const handleLocationSelect = async () => {
-    // For now, just open the location picker modal
-    // In production, you'd request location permissions and use a map picker
     setShowLocationPicker(true)
   }
 
-  const handleNext = () => {
-    // Navigate to next step or create event
-    router.back()
+  const handleLocationChange = async (text) => {
+    setLocation(text)
+
+    // Geocode location when user types (debounced)
+    if (text.length > 3) {
+      setIsGeocoding(true)
+      try {
+        // Add 5 second timeout to prevent indefinite loading
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Geocoding timeout')), 5000)
+        )
+        const coords = await Promise.race([
+          geocodeLocation(text),
+          timeoutPromise
+        ])
+        if (coords) {
+          setLocationCoords({ lat: coords.lat, lng: coords.lng })
+          // Generate map preview using coordinates for better accuracy
+          const mapUrl = getStaticMapUrlWithCoords(coords.lat, coords.lng, wp(90), hp(20))
+          setMapPreviewUrl(mapUrl)
+        } else {
+          setLocationCoords(null)
+          setMapPreviewUrl(null)
+        }
+      } catch (error) {
+        // Log but don't show error - geocoding failure shouldn't block event creation
+        console.warn('Geocoding failed or timed out:', error.message)
+        setLocationCoords(null)
+        setMapPreviewUrl(null)
+      } finally {
+        setIsGeocoding(false)
+      }
+    } else {
+      setLocationCoords(null)
+      setMapPreviewUrl(null)
+    }
+  }
+
+  const uploadEventImage = async (eventId) => {
+    if (!eventImage || !user || !eventId) {
+      console.log('Skipping image upload: no image, user, or event')
+      return null
+    }
+
+    try {
+      setIsUploading(true)
+      console.log('Starting image upload for event:', eventId)
+
+      const uploadResult = await uploadImageToBondedMedia({
+        fileUri: eventImage,
+        mediaType: 'event_cover',
+        ownerType: 'event',
+        ownerId: eventId,
+        userId: user.id,
+        eventId,
+        upsert: true,
+      })
+
+      const signedUrl = await createSignedUrlForPath(uploadResult.path)
+      return signedUrl
+    } catch (error) {
+      console.error('Error uploading image:', error)
+      console.error('Error details:', JSON.stringify(error, null, 2))
+      Alert.alert(
+        'Upload Error',
+        `Failed to upload event image: ${error.message || 'Unknown error'}. Event will be created without image.`,
+        [{ text: 'OK' }]
+      )
+      return null
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const handleCreateEvent = async () => {
+    // Validate required fields
+    if (!eventName.trim()) {
+      Alert.alert('Missing Information', 'Please enter an event name')
+      return
+    }
+
+    if (!location.trim()) {
+      Alert.alert('Missing Information', 'Please select a location')
+      return
+    }
+
+    try {
+      // Combine date and time
+      const startDateTime = new Date(eventDate)
+      startDateTime.setHours(eventTime.getHours())
+      startDateTime.setMinutes(eventTime.getMinutes())
+
+      const endDateTime = new Date(eventDate)
+      endDateTime.setHours(endTime.getHours())
+      endDateTime.setMinutes(endTime.getMinutes())
+
+      // Prepare event data
+      const eventData = {
+        title: eventName.trim(),
+        description: description.trim() || null,
+        image_url: null,
+        start_at: startDateTime.toISOString(),
+        end_at: endDateTime.toISOString(),
+        location_name: location.trim(),
+        location_address: location.trim(),
+        visibility: selectedVisibility,
+        requires_approval: selectedVisibility === 'invite_only',
+        allow_sharing: true,
+        is_paid: false,
+        invites: selectedInvitees.map(id => ({ user_id: id })),
+      }
+
+      // Create event first (needs event_id for canonical media path)
+      const createdEvent = await createEventMutation.mutateAsync(eventData)
+
+      if (eventImage && createdEvent?.id) {
+        const imageUrl = await uploadEventImage(createdEvent.id)
+        if (imageUrl) {
+          // TODO: Store media path or media_id instead of signed URL in uri_events.image_url.
+          await supabase
+            .from('uri_events')
+            .update({ image_url: imageUrl })
+            .eq('id', createdEvent.id)
+        }
+      }
+
+      Alert.alert('Success', 'Event created successfully!', [
+        { text: 'OK', onPress: () => router.back() }
+      ])
+    } catch (error) {
+      console.error('Error creating event:', error)
+      Alert.alert('Error', error.message || 'Failed to create event. Please try again.')
+    }
   }
 
   // Mock connections data
@@ -118,11 +272,16 @@ export default function CreateEvent() {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Create Event</Text>
           <TouchableOpacity
-            onPress={handleNext}
+            onPress={handleCreateEvent}
             style={styles.headerButton}
             activeOpacity={0.7}
+            disabled={createEventMutation.isPending || isUploading}
           >
-            <Text style={styles.createText}>Create</Text>
+            {createEventMutation.isPending || isUploading ? (
+              <ActivityIndicator size="small" color={theme.colors.bondedPurple} />
+            ) : (
+              <Text style={styles.createText}>Create</Text>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -130,12 +289,15 @@ export default function CreateEvent() {
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled={true}
         >
           {/* Add Event Image */}
           <TouchableOpacity
             style={styles.imagePicker}
             onPress={pickImage}
             activeOpacity={0.8}
+            delayPressIn={0}
           >
             {eventImage ? (
               <Image source={{ uri: eventImage }} style={styles.eventImage} />
@@ -158,6 +320,21 @@ export default function CreateEvent() {
               onChangeText={setEventName}
               placeholder="Enter event name"
               placeholderTextColor={theme.colors.textSecondary}
+            />
+          </View>
+
+          {/* Description */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Description (Optional)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="What's this event about?"
+              placeholderTextColor={theme.colors.textSecondary}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
             />
           </View>
 
@@ -211,20 +388,25 @@ export default function CreateEvent() {
               <TextInput
                 style={styles.input}
                 value={location}
-                onChangeText={setLocation}
-                placeholder="Select location"
+                placeholder="Enter location or address"
                 placeholderTextColor={theme.colors.textSecondary}
                 editable={false}
               />
             </TouchableOpacity>
-            {location && locationCoords && (
+            {location && mapPreviewUrl && (
               <TouchableOpacity
-                style={styles.mapPreview}
+                style={styles.mapPreviewContainer}
                 onPress={() => setShowLocationPicker(true)}
-                activeOpacity={0.8}
+                activeOpacity={0.9}
               >
-                <Text style={styles.mapPreviewText}>📍 {location}</Text>
-                <Text style={styles.mapPreviewSubtext}>Tap to view map preview</Text>
+                <Image 
+                  source={{ uri: mapPreviewUrl }} 
+                  style={styles.mapPreviewImage}
+                  resizeMode="cover"
+                />
+                <View style={styles.mapPreviewOverlay}>
+                  <Text style={styles.mapPreviewText}>{location}</Text>
+                </View>
               </TouchableOpacity>
             )}
           </View>
@@ -312,14 +494,27 @@ export default function CreateEvent() {
           </View>
         </ScrollView>
 
-        {/* Next Button */}
+        {/* Create Button */}
         <View style={styles.footer}>
           <TouchableOpacity
-            style={styles.nextButton}
-            onPress={handleNext}
+            style={[
+              styles.nextButton,
+              (createEventMutation.isPending || isUploading) && styles.nextButtonDisabled
+            ]}
+            onPress={handleCreateEvent}
             activeOpacity={0.8}
+            disabled={createEventMutation.isPending || isUploading}
           >
-            <Text style={styles.nextButtonText}>Next</Text>
+            {createEventMutation.isPending || isUploading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={theme.colors.white} />
+                <Text style={styles.nextButtonText}>
+                  {isUploading ? 'Uploading...' : 'Creating...'}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.nextButtonText}>Create Event</Text>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -592,67 +787,103 @@ export default function CreateEvent() {
           visible={showLocationPicker}
           transparent
           animationType="slide"
-          onRequestClose={() => setShowLocationPicker(false)}
+          onRequestClose={() => {
+            Keyboard.dismiss()
+            setShowLocationPicker(false)
+          }}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select Location</Text>
-                <TouchableOpacity
-                  onPress={() => setShowLocationPicker(false)}
-                  activeOpacity={0.7}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalOverlay}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <TouchableOpacity
+              style={styles.modalOverlay}
+              activeOpacity={1}
+              onPress={() => {
+                Keyboard.dismiss()
+                setShowLocationPicker(false)
+              }}
+            >
+              <TouchableOpacity
+                style={styles.modalContent}
+                activeOpacity={1}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Select Location</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Keyboard.dismiss()
+                      setShowLocationPicker(false)
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.modalCloseText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  style={styles.modalBody}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
                 >
-                  <Text style={styles.modalCloseText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBody}>
-                <TextInput
-                  style={styles.locationInput}
-                  placeholder="Enter location name or address"
-                  placeholderTextColor={theme.colors.textSecondary}
-                  value={location}
-                  onChangeText={(text) => {
-                    setLocation(text)
-                    if (text.length > 3) {
-                      // In production, you'd geocode this and show map preview
-                      setLocationCoords({ lat: 41.4806, lng: -71.5234 }) // URI coordinates
-                    }
-                  }}
-                />
-                {location && locationCoords && (
-                  <View style={styles.mapPreviewContainer}>
-                    <View style={styles.mapPreviewPlaceholder}>
-                      <MapPin size={hp(4)} color={theme.colors.textSecondary} />
-                      <Text style={styles.mapPreviewPlaceholderText}>
-                        Map preview would appear here
-                      </Text>
-                      <Text style={styles.mapPreviewPlaceholderSubtext}>
-                        (Eventbrite-style map integration)
+                  <TextInput
+                    style={styles.locationInput}
+                    placeholder="Enter location name or address"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={location}
+                    onChangeText={handleLocationChange}
+                    autoFocus={true}
+                    returnKeyType="search"
+                  />
+                  {isGeocoding && (
+                    <View style={styles.geocodingIndicator}>
+                      <ActivityIndicator size="small" color={theme.colors.bondedPurple} />
+                      <Text style={styles.geocodingText}>Finding location...</Text>
+                    </View>
+                  )}
+                  {location && mapPreviewUrl && !isGeocoding && (
+                    <View style={styles.mapPreviewContainer}>
+                      <Image 
+                        source={{ uri: mapPreviewUrl }} 
+                        style={styles.mapPreviewImage}
+                        resizeMode="cover"
+                      />
+                      {locationCoords && (
+                        <View style={styles.mapPreviewOverlay}>
+                          <MapPin size={hp(2)} color={theme.colors.white} />
+                          <Text style={styles.mapPreviewText} numberOfLines={2}>{location}</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                  {location && !mapPreviewUrl && !isGeocoding && location.length > 3 && (
+                    <View style={styles.locationError}>
+                      <Text style={styles.locationErrorText}>
+                        Could not find this location. Please try a different address.
                       </Text>
                     </View>
-                  </View>
-                )}
-                <TouchableOpacity
-                  style={[
-                    styles.locationConfirmButton,
-                    !location.trim() && styles.locationConfirmButtonDisabled,
-                  ]}
-                  onPress={() => {
-                    if (location.trim()) {
-                      if (location.length > 3) {
-                        setLocationCoords({ lat: 41.4806, lng: -71.5234 }) // URI coordinates
+                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.locationConfirmButton,
+                      (!location.trim() || isGeocoding) && styles.locationConfirmButtonDisabled,
+                    ]}
+                    onPress={() => {
+                      if (location.trim() && !isGeocoding) {
+                        Keyboard.dismiss()
+                        setShowLocationPicker(false)
                       }
-                      setShowLocationPicker(false)
-                    }
-                  }}
-                  activeOpacity={0.8}
-                  disabled={!location.trim()}
-                >
-                  <Text style={styles.locationConfirmButtonText}>Confirm</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
+                    }}
+                    activeOpacity={0.8}
+                    disabled={!location.trim() || isGeocoding}
+                  >
+                    <Text style={styles.locationConfirmButtonText}>Confirm</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
         </Modal>
       </View>
     </SafeAreaView>
@@ -763,6 +994,10 @@ const createStyles = (theme) => StyleSheet.create({
     color: theme.colors.textPrimary,
     borderWidth: 1,
     borderColor: theme.colors.border,
+  },
+  textArea: {
+    minHeight: hp(12),
+    paddingTop: hp(1.5),
   },
   inputWithIcon: {
     flexDirection: 'row',
@@ -881,6 +1116,14 @@ const createStyles = (theme) => StyleSheet.create({
     fontWeight: '700',
     color: theme.colors.white,
   },
+  nextButtonDisabled: {
+    opacity: 0.6,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(2),
+  },
   locationConfirmButton: {
     backgroundColor: theme.colors.bondedPurple,
     borderRadius: theme.radius.xl,
@@ -898,25 +1141,71 @@ const createStyles = (theme) => StyleSheet.create({
     fontWeight: '700',
     color: theme.colors.white,
   },
-  mapPreview: {
-    marginTop: hp(1),
-    padding: wp(4),
+  mapPreviewContainer: {
+    marginTop: hp(1.5),
+    borderRadius: theme.radius.lg,
+    overflow: 'hidden',
     backgroundColor: theme.colors.backgroundSecondary,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  mapPreviewImage: {
+    width: '100%',
+    height: hp(20),
+    backgroundColor: theme.colors.backgroundSecondary,
+  },
+  mapPreviewOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingVertical: hp(1),
+    paddingHorizontal: wp(4),
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(2),
   },
   mapPreviewText: {
     fontSize: hp(1.6),
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
-    color: theme.colors.textPrimary,
-    marginBottom: hp(0.5),
+    color: theme.colors.white,
+    flex: 1,
   },
-  mapPreviewSubtext: {
-    fontSize: hp(1.3),
+  geocodingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(2),
+    marginTop: hp(1),
+    paddingVertical: hp(1),
+  },
+  geocodingText: {
+    fontSize: hp(1.5),
     fontFamily: theme.typography.fontFamily.body,
     color: theme.colors.textSecondary,
+  },
+  locationError: {
+    marginTop: hp(1),
+    padding: wp(3),
+    backgroundColor: theme.colors.error + '15',
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.error + '30',
+  },
+  locationErrorText: {
+    fontSize: hp(1.4),
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.error,
   },
   modalOverlay: {
     flex: 1,
@@ -1086,31 +1375,5 @@ const createStyles = (theme) => StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     marginBottom: hp(2),
-  },
-  mapPreviewContainer: {
-    marginBottom: hp(2),
-  },
-  mapPreviewPlaceholder: {
-    height: hp(20),
-    backgroundColor: theme.colors.backgroundSecondary,
-    borderRadius: theme.radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderStyle: 'dashed',
-  },
-  mapPreviewPlaceholderText: {
-    fontSize: hp(1.5),
-    fontFamily: theme.typography.fontFamily.body,
-    color: theme.colors.textSecondary,
-    marginTop: hp(1),
-  },
-  mapPreviewPlaceholderSubtext: {
-    fontSize: hp(1.2),
-    fontFamily: theme.typography.fontFamily.body,
-    color: theme.colors.textSecondary,
-    marginTop: hp(0.5),
-    fontStyle: 'italic',
   },
 })

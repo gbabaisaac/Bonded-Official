@@ -1,72 +1,559 @@
 import { Ionicons } from '@expo/vector-icons'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, FlatList, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, Alert, Animated, FlatList, Image, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import AppCard from '../components/AppCard'
-import AppTopBar from '../components/AppTopBar'
 import BottomNav from '../components/BottomNav'
-import { ArrowLeft, Calendar, Filter, MapPin, MessageCircle, MoreHorizontal, School, User, UserPlus, X } from '../components/Icons'
+import { ArrowLeft, Calendar, Check, Clock, Filter, MapPin, MessageCircle, School, User, UserMinus, UserPlus, X } from '../components/Icons'
 import Picker from '../components/Picker'
 import { hp, wp } from '../helpers/common'
-import { generateProfiles } from '../services/profileGenerator'
-import { fetchMultiplePhotos, getPhotoUrl } from '../services/unsplashService'
+import { useFriendshipStatus, useSendFriendRequest, useAcceptFriendRequest, useCancelFriendRequest, useRemoveFriend } from '../hooks/useFriends'
+import { useProfiles } from '../hooks/useProfiles'
+import { useCreateConversation } from '../hooks/useMessages'
+import { useAuthStore } from '../stores/authStore'
 import { useAppTheme } from './theme'
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList)
 
-const YEARS = ['2025', '2024', '2023', '2022']
+const YEARS = ['All', '2025', '2024', '2023', '2022']
+
+// Profile Modal Component - extracted to use hooks
+const ProfileModalContent = ({ activeProfile, setActiveProfile, theme, router, currentUserInterests }) => {
+  if (!activeProfile) return null
+
+  // Track scroll position for pull-to-dismiss
+  const scrollY = useRef(0)
+  const [isDragging, setIsDragging] = useState(false)
+
+  // Friend status hooks
+  const { data: friendshipStatus, isLoading: statusLoading } = useFriendshipStatus(activeProfile.id)
+  const sendRequest = useSendFriendRequest()
+  const acceptRequest = useAcceptFriendRequest()
+  const cancelRequest = useCancelFriendRequest()
+  const removeFriend = useRemoveFriend()
+  const createConversation = useCreateConversation()
+
+  const handleFriendAction = () => {
+    switch (friendshipStatus?.status) {
+      case 'none':
+        sendRequest.mutate({ receiverId: activeProfile.id })
+        break
+      case 'request_sent':
+        Alert.alert(
+          'Cancel Request?',
+          'Are you sure you want to cancel this friend request?',
+          [
+            { text: 'No', style: 'cancel' },
+            { text: 'Yes, Cancel', style: 'destructive', onPress: () => {
+              cancelRequest.mutate({ requestId: friendshipStatus.requestId })
+            }}
+          ]
+        )
+        break
+      case 'request_received':
+        acceptRequest.mutate({ 
+          requestId: friendshipStatus.requestId, 
+          senderId: activeProfile.id 
+        })
+        break
+      case 'friends':
+        Alert.alert(
+          'Remove Friend?',
+          `Are you sure you want to remove ${activeProfile.name} as a friend?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Remove', style: 'destructive', onPress: () => {
+              removeFriend.mutate({ friendId: activeProfile.id })
+            }}
+          ]
+        )
+        break
+    }
+  }
+
+  const handleMessage = async () => {
+    try {
+      const conversationId = await createConversation.mutateAsync({ 
+        otherUserId: activeProfile.id 
+      })
+      setActiveProfile(null)
+      router.push({
+        pathname: '/chat',
+        params: { 
+          conversationId,
+          userId: activeProfile.id, 
+          userName: activeProfile.name 
+        }
+      })
+    } catch (error) {
+      console.error('Error creating conversation:', error)
+    }
+  }
+
+  const getFriendButtonConfig = () => {
+    if (statusLoading) {
+      return { icon: null, text: 'Loading...', loading: true, style: 'secondary' }
+    }
+    switch (friendshipStatus?.status) {
+      case 'friends':
+        return { icon: Check, text: 'Friends', style: 'friends' }
+      case 'request_sent':
+        return { icon: Clock, text: 'Pending', style: 'pending' }
+      case 'request_received':
+        return { icon: UserPlus, text: 'Accept', style: 'accept' }
+      default:
+        return { icon: UserPlus, text: 'Add friend', style: 'secondary' }
+    }
+  }
+
+  const buttonConfig = getFriendButtonConfig()
+  const isActionLoading = sendRequest.isPending || cancelRequest.isPending || 
+                          acceptRequest.isPending || removeFriend.isPending
+
+  // Pull-to-dismiss handlers
+  const handleScroll = useCallback((event) => {
+    scrollY.current = event.nativeEvent.contentOffset.y
+  }, [])
+
+  const handleScrollBeginDrag = useCallback(() => {
+    setIsDragging(true)
+  }, [])
+
+  const handleScrollEndDrag = useCallback((event) => {
+    setIsDragging(false)
+    const offsetY = event.nativeEvent.contentOffset.y
+    // If user is at top and pulls down past threshold, dismiss
+    if (offsetY < -80) {
+      setActiveProfile(null)
+    }
+  }, [setActiveProfile])
+
+  const styles = createProfileModalStyles(theme)
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      
+      {/* Drag indicator at very top */}
+      <View style={styles.dragIndicatorContainer}>
+        <View style={styles.dragIndicator} />
+      </View>
+      
+      {/* Hero Image - extends past notch */}
+      <View style={styles.heroSection}>
+        <Image 
+          source={{ uri: activeProfile.photoUrl }} 
+          style={styles.heroImage} 
+        />
+        <LinearGradient
+          colors={['rgba(0,0,0,0.3)', 'transparent', 'transparent', 'rgba(0,0,0,0.5)']}
+          style={styles.heroGradient}
+        />
+        
+        {/* Back Button */}
+        <TouchableOpacity
+          style={styles.backButton}
+          activeOpacity={0.7}
+          onPress={() => setActiveProfile(null)}
+        >
+          <View style={styles.backButtonCircle}>
+            <ArrowLeft size={hp(2)} color="#fff" strokeWidth={2} />
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Scrollable Content */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        bounces={true}
+        alwaysBounceVertical={true}
+        onScroll={handleScroll}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        onScrollEndDrag={handleScrollEndDrag}
+        scrollEventThrottle={16}
+      >
+        {/* Name */}
+        <Text style={styles.name}>{activeProfile.name}</Text>
+        
+        {/* Handle */}
+        <Text style={styles.handle}>
+          @{activeProfile.name.toLowerCase().replace(/\s+/g, '').slice(0, 8)}
+        </Text>
+        
+        {/* Bio */}
+        <Text style={styles.bio}>{activeProfile.quote}</Text>
+        
+        {/* Action Buttons */}
+        <View style={styles.actionButtonsRow}>
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              buttonConfig.style === 'friends' && styles.actionButtonFriends,
+              buttonConfig.style === 'pending' && styles.actionButtonPending,
+              buttonConfig.style === 'accept' && styles.actionButtonAccept,
+              buttonConfig.style === 'secondary' && styles.actionButtonSecondary,
+            ]}
+            activeOpacity={0.7}
+            onPress={handleFriendAction}
+            disabled={isActionLoading || buttonConfig.loading}
+          >
+            {isActionLoading || buttonConfig.loading ? (
+              <ActivityIndicator size="small" color={theme.colors.textPrimary} />
+            ) : (
+              <>
+                {buttonConfig.icon && (
+                  <buttonConfig.icon 
+                    size={hp(2)} 
+                    color={buttonConfig.style === 'accept' ? theme.colors.white : theme.colors.textPrimary} 
+                    strokeWidth={2} 
+                  />
+                )}
+                <Text style={[
+                  styles.actionButtonText,
+                  buttonConfig.style === 'accept' && styles.actionButtonTextAccept
+                ]}>
+                  {buttonConfig.text}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={styles.actionButtonPrimary}
+            activeOpacity={0.7}
+            onPress={handleMessage}
+            disabled={createConversation.isPending}
+          >
+            {createConversation.isPending ? (
+              <ActivityIndicator size="small" color={theme.colors.white} />
+            ) : (
+              <>
+                <MessageCircle size={hp(2)} color={theme.colors.white} strokeWidth={2} />
+                <Text style={styles.actionButtonPrimaryText}>Message</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+        
+        {/* Meta Info Pills */}
+        <View style={styles.metaRow}>
+          <View style={styles.metaPill}>
+            <School size={hp(1.6)} color={theme.colors.textSecondary} strokeWidth={2} />
+            <Text style={styles.metaPillText}>{activeProfile.major}</Text>
+          </View>
+          <View style={styles.metaPill}>
+            <Calendar size={hp(1.6)} color={theme.colors.textSecondary} strokeWidth={2} />
+            <Text style={styles.metaPillText}>Class of {activeProfile.year}</Text>
+          </View>
+          {activeProfile.grade && (
+            <View style={styles.metaPill}>
+              <User size={hp(1.6)} color={theme.colors.textSecondary} strokeWidth={2} />
+              <Text style={styles.metaPillText}>{activeProfile.grade}</Text>
+            </View>
+          )}
+        </View>
+        
+        {/* Location */}
+        <View style={styles.locationRow}>
+          <MapPin size={hp(1.8)} color={theme.colors.textSecondary} strokeWidth={2} />
+          <Text style={styles.locationText}>
+            {activeProfile.location || activeProfile.university || 'University of Rhode Island'}
+          </Text>
+        </View>
+        
+        {/* Interests Section */}
+        {activeProfile.interests && activeProfile.interests.length > 0 && (
+          <View style={styles.tagsSection}>
+            <Text style={styles.tagsTitle}>Interests</Text>
+            <View style={styles.tagsRow}>
+              {activeProfile.interests.slice(0, 8).map((interest, idx) => {
+                const isShared = currentUserInterests.has(interest)
+                return (
+                  <View 
+                    key={idx} 
+                    style={[styles.tag, isShared && styles.tagShared]}
+                  >
+                    {isShared && (
+                      <Ionicons 
+                        name="checkmark-circle" 
+                        size={hp(1.4)} 
+                        color={theme.colors.bondedPurple} 
+                        style={{ marginRight: wp(1) }}
+                      />
+                    )}
+                    <Text style={[styles.tagText, isShared && styles.tagTextShared]}>
+                      {interest}
+                    </Text>
+                  </View>
+                )
+              })}
+            </View>
+            {currentUserInterests.size > 0 && (
+              <Text style={styles.sharedHint}>Highlighted interests match yours</Text>
+            )}
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  )
+}
+
+// Styles for ProfileModalContent
+const createProfileModalStyles = (theme) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  dragIndicatorContainer: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? hp(6) : hp(3),
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    alignItems: 'center',
+    paddingVertical: hp(0.5),
+  },
+  dragIndicator: {
+    width: wp(10),
+    height: hp(0.5),
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    borderRadius: hp(0.25),
+  },
+  heroSection: {
+    width: '100%',
+    height: hp(50),
+    position: 'relative',
+  },
+  heroImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  heroGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  backButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? hp(6) : hp(4),
+    left: wp(4),
+    zIndex: 10,
+  },
+  backButtonCircle: {
+    width: hp(4.5),
+    height: hp(4.5),
+    borderRadius: hp(2.25),
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: wp(5),
+    paddingTop: hp(3),
+    paddingBottom: hp(10),
+  },
+  name: {
+    fontSize: hp(3.2),
+    fontWeight: '700',
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.heading,
+    marginBottom: hp(0.5),
+    letterSpacing: -0.3,
+  },
+  handle: {
+    fontSize: hp(1.8),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+    marginBottom: hp(2),
+  },
+  bio: {
+    fontSize: hp(1.7),
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.body,
+    lineHeight: hp(2.5),
+    marginBottom: hp(3),
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    gap: wp(3),
+    marginBottom: hp(2.5),
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp(1.3),
+    borderRadius: theme.radius.lg,
+    gap: wp(2),
+  },
+  actionButtonSecondary: {
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderWidth: 1.5,
+    borderColor: theme.colors.border,
+  },
+  actionButtonFriends: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderWidth: 1.5,
+    borderColor: '#22c55e',
+  },
+  actionButtonPending: {
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+    borderWidth: 1.5,
+    borderColor: '#fbbf24',
+  },
+  actionButtonAccept: {
+    backgroundColor: theme.colors.bondedPurple,
+    borderWidth: 0,
+  },
+  actionButtonText: {
+    fontSize: hp(1.6),
+    fontWeight: '600',
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.body,
+  },
+  actionButtonTextAccept: {
+    color: theme.colors.white,
+  },
+  actionButtonPrimary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp(1.3),
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.info,
+    gap: wp(2),
+  },
+  actionButtonPrimaryText: {
+    fontSize: hp(1.6),
+    fontWeight: '600',
+    color: theme.colors.white,
+    fontFamily: theme.typography.fontFamily.body,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: wp(2),
+    marginBottom: hp(2.5),
+  },
+  metaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: wp(3),
+    paddingVertical: hp(0.8),
+    gap: wp(1.5),
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  metaPillText: {
+    fontSize: hp(1.4),
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '500',
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(1.5),
+    marginBottom: hp(2.5),
+  },
+  locationText: {
+    fontSize: hp(1.6),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+  },
+  tagsSection: {
+    marginBottom: hp(2.5),
+  },
+  tagsTitle: {
+    fontSize: hp(1.8),
+    fontWeight: '600',
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.heading,
+    marginBottom: hp(1.2),
+  },
+  tagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: wp(2),
+  },
+  tag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: wp(3.5),
+    paddingVertical: hp(0.9),
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  tagShared: {
+    backgroundColor: theme.colors.bondedPurple + '20',
+    borderColor: theme.colors.bondedPurple,
+  },
+  tagText: {
+    fontSize: hp(1.5),
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '500',
+  },
+  tagTextShared: {
+    color: theme.colors.bondedPurple,
+    fontWeight: '600',
+  },
+  sharedHint: {
+    fontSize: hp(1.2),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+    marginTop: hp(1),
+    fontStyle: 'italic',
+  },
+})
 
 export default function Yearbook() {
   const router = useRouter()
   const theme = useAppTheme()
-  const [selectedYear, setSelectedYear] = useState(YEARS[0])
+  const { user } = useAuthStore()
+  const [selectedYear, setSelectedYear] = useState('All') // Show all profiles by default
   const [sortOption, setSortOption] = useState('recent')
   const [gradeFilter, setGradeFilter] = useState(null)
   const [ageFilter, setAgeFilter] = useState(null)
   const [majorFilter, setMajorFilter] = useState(null)
   const [genderFilter, setGenderFilter] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false)
   const [activeProfile, setActiveProfile] = useState(null)
-  const [profiles, setProfiles] = useState([])
-  const [isLoading, setIsLoading] = useState(true)
   const scrollY = useRef(new Animated.Value(0)).current
   const lastScrollY = useRef(0)
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const isAnimating = useRef(false)
 
-  // Generate profiles on mount - cached per session
-  useEffect(() => {
-    const generateData = async () => {
-      setIsLoading(true)
-      try {
-        // Fetch photos from Unsplash (will use cache if available)
-        const photoUrls = await fetchMultiplePhotos(200)
-        
-        // Generate profiles with Unsplash photos
-        const generatedProfiles = generateProfiles(200, (width, height, seed) => {
-          // Extract index from seed (e.g., "profile-5" -> 5)
-          let index = 0
-          if (seed && seed.startsWith('profile-')) {
-            index = parseInt(seed.replace('profile-', '')) || 0
-          }
-          // Use the fetched Unsplash photos, fallback to Picsum if needed
-          return photoUrls[index] || getPhotoUrl(width, height, seed)
-        })
-        
-        setProfiles(generatedProfiles)
-      } catch (error) {
-        console.error('❌ Error generating profiles:', error)
-        // Fallback to Picsum Photos
-        const generatedProfiles = generateProfiles(200, getPhotoUrl)
-        setProfiles(generatedProfiles)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    generateData()
-  }, [])
+  // Build filters for the query
+  const filters = {
+    graduationYear: selectedYear && selectedYear !== 'All' ? parseInt(selectedYear) : null,
+    grade: gradeFilter,
+    major: majorFilter,
+    gender: genderFilter,
+    searchQuery: searchQuery.trim() || null,
+    ageMin: ageFilter === '18-19' ? 18 : ageFilter === '20-21' ? 20 : ageFilter === '22+' ? 22 : null,
+    ageMax: ageFilter === '18-19' ? 19 : ageFilter === '20-21' ? 21 : null,
+  }
+
+  // Fetch profiles from Supabase
+  const { data: profiles = [], isLoading, error, refetch } = useProfiles(filters)
 
   const yearOptions = YEARS.map((year) => ({ value: year, label: year }))
 
@@ -113,65 +600,77 @@ export default function Yearbook() {
     { value: 'alpha', label: 'A–Z' },
   ]
 
+  // Get current user's profile and interests for comparison
+  const currentUserProfile = useMemo(() => {
+    return profiles.find(p => p.id === user?.id)
+  }, [profiles, user?.id])
+
+  const currentUserInterests = useMemo(() => {
+    return new Set(currentUserProfile?.interests || [])
+  }, [currentUserProfile])
+
+  // Apply sorting and put current user first (filtering is done in the query)
   const filteredProfiles = useMemo(() => {
     if (profiles.length === 0) return []
     
-    let result = profiles.filter((p) => p.year === selectedYear)
+    // Separate current user from others
+    const currentUser = profiles.find(p => p.id === user?.id)
+    let others = profiles.filter(p => p.id !== user?.id)
 
-    if (gradeFilter) {
-      result = result.filter((p) => p.grade === gradeFilter)
-    }
-
-    if (majorFilter) {
-      result = result.filter((p) => p.major === majorFilter)
-    }
-
-    if (genderFilter) {
-      result = result.filter((p) => p.gender === genderFilter)
-    }
-
-    if (ageFilter) {
-      result = result.filter((p) => {
-        if (ageFilter === '18-19') return p.age >= 18 && p.age <= 19
-        if (ageFilter === '20-21') return p.age >= 20 && p.age <= 21
-        if (ageFilter === '22+') return p.age >= 22
-        return true
-      })
-    }
-
-    // Simple sort mock
+    // Apply sorting to others
     if (sortOption === 'alpha') {
-      result = [...result].sort((a, b) => a.name.localeCompare(b.name))
+      others = others.sort((a, b) => a.name.localeCompare(b.name))
+    } else if (sortOption === 'recent') {
+      // Already sorted by created_at DESC from query
+    } else if (sortOption === 'newest') {
+      // Already sorted by created_at DESC from query
     }
 
-    return result
-  }, [profiles, selectedYear, gradeFilter, majorFilter, genderFilter, ageFilter, sortOption])
+    // Put current user first (marked as "You")
+    if (currentUser) {
+      return [{ ...currentUser, isCurrentUser: true }, ...others]
+    }
+
+    return others
+  }, [profiles, sortOption, user?.id])
 
   const numColumns = 3
-  const gap = wp(1.5) // Gap between columns
-  const padding = wp(2) // Horizontal padding matches listContent
+  const gap = theme.spacing.sm // Gap between columns
+  const padding = theme.spacing.sm // Horizontal padding matches listContent
   const cardWidth = (wp(100) - (padding * 2) - (gap * (numColumns - 1))) / numColumns
 
   const renderProfileCard = ({ item, index }) => {
+    const isYou = item.isCurrentUser
+    
     return (
       <TouchableOpacity
         style={[styles.cardWrapper, { width: cardWidth }]}
         activeOpacity={0.9}
         onPress={() => {
-          setActiveProfile(item)
+          if (isYou) {
+            router.push('/profile')
+          } else {
+            setActiveProfile(item)
+          }
         }}
       >
-        <AppCard radius="md" padding={false} style={styles.card}>
+        <AppCard radius="md" padding={false} style={[styles.card, isYou && styles.cardYou]}>
           <View style={styles.cardImageWrapper}>
             <Image source={{ uri: item.photoUrl }} style={styles.cardImage} />
             <LinearGradient
               colors={['transparent', 'rgba(0, 0, 0, 0.7)']}
               style={styles.cardGradient}
             />
+            {/* "You" Badge for current user */}
+            {isYou && (
+              <View style={styles.youBadge}>
+                <Text style={styles.youBadgeText}>You</Text>
+              </View>
+            )}
             {/* Name Over Image */}
             <View style={styles.cardOverlayContent}>
               <Text numberOfLines={1} style={styles.cardName}>
-                {item.name}
+                {isYou ? 'You' : item.name}
               </Text>
             </View>
           </View>
@@ -180,9 +679,15 @@ export default function Yearbook() {
             <Text numberOfLines={2} style={styles.cardQuote}>
               {item.quote}
             </Text>
-            {/* Purple Badge - Below Quote */}
+            {/* Major Badge - Below Quote */}
             <View style={styles.cardBadge}>
-              <Text style={styles.cardBadgeText}>{item.major.split(' ')[0]}</Text>
+              <Text 
+                style={styles.cardBadgeText}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {item.major?.split(' ')[0] || 'Undeclared'}
+              </Text>
             </View>
           </View>
         </AppCard>
@@ -263,30 +768,71 @@ export default function Yearbook() {
             paddingHorizontal: wp(4),
           }}
         >
-          <AppTopBar
-            schoolName="University of Rhode Island"
-            onPressProfile={() => router.push('/profile')}
-            onPressSchool={() => {}}
-            onPressNotifications={() => router.push('/notifications')}
-          />
+          {/* Top Bar with Bonded logo and notification */}
+          <View style={styles.topBar}>
+            <TouchableOpacity
+              style={styles.topBarButton}
+              activeOpacity={0.7}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="arrow-back" size={hp(2.4)} color={theme.colors.textPrimary} />
+            </TouchableOpacity>
+            
+            <View style={styles.topBarCenter}>
+              <Image
+                source={require('../assets/images/transparent-bonded.png')}
+                style={styles.topBarLogo}
+                resizeMode="contain"
+              />
+              <Text style={styles.topBarTitle}>Bonded</Text>
+            </View>
+            
+            <TouchableOpacity
+              style={styles.topBarButton}
+              activeOpacity={0.7}
+              onPress={() => router.push('/notifications')}
+            >
+              <Ionicons name="notifications-outline" size={hp(2.4)} color={theme.colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
 
           {/* University and Year Header */}
           <View style={styles.headerContent}>
             <Text style={styles.universityYearTitle}>
               University of Rhode Island {selectedYear}
             </Text>
+            
+            {/* Search Bar */}
+            <View style={styles.searchContainer}>
+              <Ionicons
+                name="search-outline"
+                size={hp(2)}
+                color={theme.colors.textSecondary}
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by name..."
+                placeholderTextColor={theme.colors.textSecondary + '80'}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setSearchQuery('')}
+                  style={styles.clearButton}
+                >
+                  <Ionicons
+                    name="close-circle"
+                    size={hp(2)}
+                    color={theme.colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+            
+            {/* Filter button only */}
             <View style={styles.headerActions}>
-              <TouchableOpacity
-                style={styles.headerIconButton}
-                activeOpacity={0.7}
-                onPress={() => router.push('/notifications')}
-              >
-                <Ionicons
-                  name="notifications-outline"
-                  size={hp(2.2)}
-                  color={theme.colors.textSecondary}
-                />
-              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.filterIconButton}
                 activeOpacity={0.7}
@@ -303,6 +849,19 @@ export default function Yearbook() {
         </Animated.View>
 
         {/* Profile Grid - Instagram Style */}
+        {error && (
+          <View style={styles.errorState}>
+            <Text style={styles.errorStateText}>
+              Failed to load profiles. Please try again.
+            </Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => refetch()}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {isLoading ? (
           <View style={styles.loadingContainer}>
             <Text style={styles.loadingText}>Loading profiles...</Text>
@@ -318,198 +877,43 @@ export default function Yearbook() {
             renderItem={renderProfileCard}
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons
+                  name="people-outline"
+                  size={hp(6)}
+                  color={theme.colors.textSecondary}
+                  style={{ opacity: 0.3 }}
+                />
+                <Text style={styles.emptyStateText}>
+                  {searchQuery ? 'No profiles found' : 'No profiles available'}
+                </Text>
+                {searchQuery && (
+                  <Text style={styles.emptyStateSubtext}>
+                    Try searching with a different name
+                  </Text>
+                )}
+              </View>
+            }
           />
         )}
 
         {/* Profile Modal */}
         <Modal
           visible={!!activeProfile}
-          transparent
+          transparent={false}
           animationType="slide"
+          presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'fullScreen'}
           onRequestClose={() => setActiveProfile(null)}
         >
-          <View style={styles.profileModalContainer}>
-            {activeProfile && (
-              <>
-                {/* Top Bar Overlay */}
-                <View style={styles.profileModalTopBar}>
-                  <TouchableOpacity
-                    style={styles.profileModalTopBarButton}
-                    activeOpacity={0.7}
-                    onPress={() => setActiveProfile(null)}
-                  >
-                    <View style={styles.profileModalTopBarCircle}>
-                      <ArrowLeft size={hp(2)} color={theme.colors.textPrimary} strokeWidth={2} />
-                    </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.profileModalTopBarButton}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      // TODO: Open menu
-                    }}
-                  >
-                    <View style={styles.profileModalTopBarCircle}>
-                      <MoreHorizontal size={hp(2)} color={theme.colors.textPrimary} strokeWidth={2} />
-                    </View>
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                  style={styles.profileModalScrollView}
-                  contentContainerStyle={styles.profileModalScrollContent}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {/* Hero Image Section */}
-                  <View style={styles.profileModalHeroSection}>
-                    <Image source={{ uri: activeProfile.photoUrl }} style={styles.profileModalHeroImage} />
-                    
-                    {/* Photo Carousel Dots (if multiple photos) */}
-                    <View style={styles.profileModalCarouselDots}>
-                      <View style={[styles.profileModalDot, styles.profileModalDotActive]} />
-                      <View style={styles.profileModalDot} />
-                      <View style={styles.profileModalDot} />
-                    </View>
-                  </View>
-
-                  {/* Profile Info Section */}
-                  <View style={styles.profileModalInfoSection}>
-                    {/* Name */}
-                    <Text style={styles.profileModalName}>{activeProfile.name}</Text>
-                    
-                    {/* Handle (generated from name) */}
-                    <Text style={styles.profileModalHandle}>
-                      @{activeProfile.name.toLowerCase().replace(/\s+/g, '').slice(0, 8)}
-                    </Text>
-                    
-                    {/* GroupJam Score */}
-                    <View style={styles.profileModalGroupJamScore}>
-                      <View style={styles.groupJamScoreRow}>
-                        <Text style={styles.groupJamScoreLabel}>GroupJam Score</Text>
-                        <Text style={styles.groupJamScoreValue}>{activeProfile.groupjamScore || 85}%</Text>
-                      </View>
-                      <View style={styles.groupJamScoreBar}>
-                        <View 
-                          style={[
-                            styles.groupJamScoreFill, 
-                            { width: `${activeProfile.groupjamScore || 85}%` }
-                          ]} 
-                        />
-                      </View>
-                      <Text style={styles.groupJamScoreDescription}>
-                        High compatibility for friendship
-                      </Text>
-                    </View>
-                    
-                    {/* Bio (using quote) */}
-                    <Text style={styles.profileModalBio}>{activeProfile.quote}</Text>
-                    
-                    {/* Action Buttons */}
-                    <View style={styles.profileModalActionButtonsRow}>
-                      <TouchableOpacity
-                        style={styles.profileModalActionButtonSecondary}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          // TODO: Add friend
-                        }}
-                      >
-                        <UserPlus size={hp(2)} color={theme.colors.textPrimary} strokeWidth={2} />
-                        <Text style={styles.profileModalActionButtonSecondaryText}>Add friend</Text>
-                      </TouchableOpacity>
-                      
-                      <TouchableOpacity
-                        style={styles.profileModalActionButtonPrimary}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          // TODO: Navigate to messages
-                        }}
-                      >
-                        <MessageCircle size={hp(2)} color={theme.colors.white} strokeWidth={2} />
-                        <Text style={styles.profileModalActionButtonPrimaryText}>Message</Text>
-                      </TouchableOpacity>
-                    </View>
-                    
-                    {/* Meta Info Pills */}
-                    <View style={styles.profileModalMetaRow}>
-                      <View style={styles.profileModalMetaPill}>
-                        <School
-                          size={hp(1.6)}
-                          color={theme.colors.textSecondary}
-                          strokeWidth={2}
-                          style={{ marginRight: wp(1) }}
-                        />
-                        <Text style={styles.profileModalMetaPillText}>
-                          {activeProfile.major}
-                        </Text>
-                      </View>
-                      <View style={styles.profileModalMetaPill}>
-                        <Calendar
-                          size={hp(1.6)}
-                          color={theme.colors.textSecondary}
-                          strokeWidth={2}
-                          style={{ marginRight: wp(1) }}
-                        />
-                        <Text style={styles.profileModalMetaPillText}>
-                          Class of {activeProfile.year}
-                        </Text>
-                      </View>
-                      <View style={styles.profileModalMetaPill}>
-                        <User
-                          size={hp(1.6)}
-                          color={theme.colors.textSecondary}
-                          strokeWidth={2}
-                          style={{ marginRight: wp(1) }}
-                        />
-                        <Text style={styles.profileModalMetaPillText}>
-                          {activeProfile.grade}
-                        </Text>
-                      </View>
-                    </View>
-                    
-                    {/* Tags Section */}
-                    <View style={styles.profileModalTagsSection}>
-                      <Text style={styles.profileModalTagsTitle}>Highlights</Text>
-                      <View style={styles.profileModalTagsRow}>
-                        <View style={styles.profileModalTag}>
-                          <Text style={styles.profileModalTagText}>Interests</Text>
-                        </View>
-                        <View style={styles.profileModalTag}>
-                          <Text style={styles.profileModalTagText}>Study matches</Text>
-                        </View>
-                        <View style={styles.profileModalTag}>
-                          <Text style={styles.profileModalTagText}>Roommate fit</Text>
-                        </View>
-                      </View>
-                    </View>
-                    
-                    {/* Location */}
-                    <View style={styles.profileModalLocationRow}>
-                      <MapPin size={hp(1.8)} color={theme.colors.textSecondary} strokeWidth={2} />
-                      <Text style={styles.profileModalLocationText}>
-                        {activeProfile.location || 'University of Rhode Island'}
-                      </Text>
-                    </View>
-                    
-                    {/* Interests Section */}
-                    {activeProfile.interests && activeProfile.interests.length > 0 && (
-                      <View style={styles.profileModalTagsSection}>
-                        <Text style={styles.profileModalTagsTitle}>Interests</Text>
-                        <View style={styles.profileModalTagsRow}>
-                          {activeProfile.interests.slice(0, 6).map((interest, idx) => (
-                            <View key={idx} style={styles.profileModalTag}>
-                              <Text style={styles.profileModalTagText}>{interest}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                </ScrollView>
-              </>
-            )}
-          </View>
+          <ProfileModalContent 
+            activeProfile={activeProfile}
+            setActiveProfile={setActiveProfile}
+            theme={theme}
+            router={router}
+            currentUserInterests={currentUserInterests}
+          />
         </Modal>
-
 
         {/* Filters Modal */}
         <Modal
@@ -646,16 +1050,37 @@ const createStyles = (theme) => StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerContent: {
+  // Top Bar
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: hp(1),
+    paddingVertical: hp(1.5),
   },
-  headerActions: {
+  topBarButton: {
+    width: hp(4.5),
+    height: hp(4.5),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topBarCenter: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: wp(2),
+    gap: wp(1.5),
+  },
+  topBarLogo: {
+    width: hp(2.5),
+    height: hp(2.5),
+  },
+  topBarTitle: {
+    fontSize: hp(2),
+    fontWeight: '700',
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.heading,
+    letterSpacing: -0.3,
+  },
+  headerContent: {
+    paddingVertical: hp(1),
   },
   headerIconButton: {
     padding: hp(0.5),
@@ -664,29 +1089,105 @@ const createStyles = (theme) => StyleSheet.create({
     padding: hp(0.5),
   },
   universityYearTitle: {
-    fontSize: hp(1.9),
-    fontWeight: '600',
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: theme.typography.weights.semibold,
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.heading,
     letterSpacing: -0.2,
-    flex: 1,
     textAlign: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderRadius: theme.radius.lg,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  },
+  searchIcon: {
+    marginRight: theme.spacing.sm,
+    opacity: 0.6,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textPrimary,
+    paddingVertical: 0,
+  },
+  clearButton: {
+    padding: theme.spacing.xs,
+    marginLeft: theme.spacing.xs,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
   },
   listContent: {
-    paddingHorizontal: wp(2), // Add padding for text readability
-    paddingTop: hp(12), // Moved higher since we removed the yearbook label
-    paddingBottom: hp(10), // Space for bottom nav
+    paddingHorizontal: theme.spacing.sm,
+    paddingTop: hp(28),
+    paddingBottom: hp(10),
   },
   cardRow: {
     justifyContent: 'flex-start',
-    marginBottom: hp(2.5), // More space between rows for text
-    gap: wp(1.5), // Gap between columns
+    marginBottom: theme.spacing.lg,
+    gap: theme.spacing.sm,
   },
   cardWrapper: {
     marginBottom: hp(2),
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
   card: {
     overflow: 'hidden',
+  },
+  cardYou: {
+    borderWidth: 2,
+    borderColor: theme.colors.bondedPurple,
+  },
+  youBadge: {
+    position: 'absolute',
+    top: hp(1),
+    right: hp(1),
+    backgroundColor: theme.colors.bondedPurple,
+    paddingHorizontal: wp(2),
+    paddingVertical: hp(0.3),
+    borderRadius: theme.radius.pill,
+    zIndex: 2,
+  },
+  youBadgeText: {
+    fontSize: hp(1.1),
+    fontWeight: '600',
+    color: theme.colors.white,
+    fontFamily: theme.typography.fontFamily.body,
   },
   cardImageWrapper: {
     aspectRatio: 1,
@@ -707,39 +1208,37 @@ const createStyles = (theme) => StyleSheet.create({
   },
   cardBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: theme.colors.accent,
-    paddingHorizontal: wp(2.5),
-    paddingVertical: hp(0.5),
-    borderRadius: 9999,
-    marginTop: hp(1),
+    marginTop: theme.spacing.md,
+    maxWidth: '100%',
   },
   cardBadgeText: {
-    fontSize: hp(1.1),
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.accent,
   },
   cardOverlayContent: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: wp(3),
+    padding: theme.spacing.md,
     zIndex: 1,
   },
   cardName: {
-    fontSize: hp(1.6),
-    fontWeight: '600',
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: theme.typography.weights.semibold,
     color: '#FFFFFF',
-    marginBottom: hp(0.2),
+    marginBottom: theme.spacing.xs,
   },
   cardMajor: {
-    fontSize: hp(1.3),
-    fontWeight: '400',
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: theme.typography.weights.regular,
     color: '#FFFFFF',
     opacity: 0.9,
   },
   cardInfo: {
-    padding: wp(3),
+    padding: theme.spacing.md,
+    width: '100%',
   },
   cardQuote: {
     fontSize: hp(1.2),
@@ -826,7 +1325,6 @@ const createStyles = (theme) => StyleSheet.create({
     left: 0,
     right: 0,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: wp(4),
     paddingTop: hp(1),
@@ -871,27 +1369,6 @@ const createStyles = (theme) => StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
   },
-  profileModalCarouselDots: {
-    position: 'absolute',
-    bottom: hp(2),
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: wp(1.5),
-  },
-  profileModalDot: {
-    width: wp(2),
-    height: wp(2),
-    borderRadius: theme.radius.full,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-  },
-  profileModalDotActive: {
-    backgroundColor: theme.colors.info, // Blue color
-    width: wp(2.5),
-    height: wp(2.5),
-  },
   profileModalInfoSection: {
     backgroundColor: theme.colors.background,
     paddingHorizontal: wp(5),
@@ -932,9 +1409,9 @@ const createStyles = (theme) => StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: hp(1.3),
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.colors.background,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderWidth: 1.5,
+    borderColor: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.2)' : theme.colors.border,
     gap: wp(2),
   },
   profileModalActionButtonSecondaryText: {
@@ -968,12 +1445,12 @@ const createStyles = (theme) => StyleSheet.create({
   profileModalMetaPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.backgroundSecondary,
     borderRadius: theme.radius.pill,
     paddingHorizontal: wp(3),
     paddingVertical: hp(0.8),
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderWidth: 1.5,
+    borderColor: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.2)' : theme.colors.border,
   },
   profileModalMetaPillText: {
     fontSize: hp(1.4),
@@ -1000,15 +1477,32 @@ const createStyles = (theme) => StyleSheet.create({
     paddingHorizontal: wp(3.5),
     paddingVertical: hp(0.9),
     borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.background,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderWidth: 1.5,
+    borderColor: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.2)' : theme.colors.border,
   },
   profileModalTagText: {
     fontSize: hp(1.5),
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '500',
+  },
+  profileModalTagShared: {
+    backgroundColor: theme.colors.bondedPurple + '20',
+    borderColor: theme.colors.bondedPurple,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  profileModalTagTextShared: {
+    color: theme.colors.bondedPurple,
+    fontWeight: '600',
+  },
+  sharedInterestsHint: {
+    fontSize: hp(1.2),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+    marginTop: hp(1),
+    fontStyle: 'italic',
   },
   profileModalLocationRow: {
     flexDirection: 'row',
@@ -1034,6 +1528,56 @@ const createStyles = (theme) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: hp(1),
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: hp(20),
+    paddingHorizontal: theme.spacing.lg,
+  },
+  emptyStateText: {
+    fontSize: theme.typography.sizes.lg,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.textPrimary,
+    marginTop: theme.spacing.md,
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textSecondary,
+    marginTop: theme.spacing.sm,
+    textAlign: 'center',
+  },
+  errorState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: hp(20),
+    paddingHorizontal: theme.spacing.lg,
+  },
+  errorStateText: {
+    fontSize: theme.typography.sizes.lg,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.error || '#ef4444',
+    marginTop: theme.spacing.md,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: theme.colors.primary || theme.colors.bondedPurple,
+    borderRadius: theme.radius.md,
+  },
+  retryButtonText: {
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.white,
   },
   groupJamScoreLabel: {
     fontSize: hp(1.6),

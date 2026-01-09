@@ -1,15 +1,22 @@
-import React, { useRef, useState, useEffect } from 'react'
-import { Stack, useRouter } from 'expo-router'
-import { Dimensions, View, Text, TouchableOpacity, ScrollView, Platform, Pressable, Image } from 'react-native'
-import { GestureHandlerRootView, DrawerLayout } from 'react-native-gesture-handler'
 import { Ionicons } from '@expo/vector-icons'
-import QueryProvider from '../providers/QueryProvider'
-import { StoriesProvider } from '../contexts/StoriesContext'
-import { EventsProvider } from '../contexts/EventsContext'
-import { ClubsProvider, useClubsContext } from '../contexts/ClubsContext'
-import { hp, wp } from '../helpers/common'
-import { ThemeProvider, useAppTheme } from './theme'
+import { Stack, useRouter, usePathname } from 'expo-router'
+import React, { useEffect, useRef, useState } from 'react'
+import { Dimensions, Image, Platform, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native'
+import { DrawerLayout, GestureHandlerRootView } from 'react-native-gesture-handler'
 import Loading from '../components/Loading'
+import { OnboardingNudge } from '../components/OnboardingNudge'
+import { ClubsProvider, useClubsContext } from '../contexts/ClubsContext'
+import { EventsProvider } from '../contexts/EventsContext'
+import { MessagesProvider } from '../contexts/MessagesContext'
+import { StoriesProvider } from '../contexts/StoriesContext'
+import { hp, wp } from '../helpers/common'
+import { useForums } from '../hooks/useForums'
+import { supabase } from '../lib/supabase'
+import QueryProvider from '../providers/QueryProvider'
+import { useAuthStore } from '../stores/authStore'
+import { useOnboardingStore } from '../stores/onboardingStore'
+import { isFeatureEnabled } from '../utils/featureGates'
+import { ThemeProvider, useAppTheme } from './theme'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
@@ -48,6 +55,16 @@ const DrawerItem = ({ icon, label, onPress }: { icon: string; label: string; onP
 
 const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) => {
   const theme = useAppTheme()
+  const { user, isAuthenticated } = useAuthStore()
+  
+  // Only fetch forums if user is authenticated (hook has enabled: !!user, but check here too)
+  const { data: forums = [], isLoading: forumsLoading } = useForums()
+  
+  // Early return if not authenticated (after hooks are called)
+  if (!isAuthenticated || !user) {
+    return null
+  }
+  
   // Get user clubs and admin clubs - wrapped in try-catch in case context isn't available
   let userClubs: any[] = []
   let adminClubs: any[] = []
@@ -57,29 +74,31 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
     adminClubs = clubsContext.getAdminClubs()
   } catch (e) {
     // Context not available, use empty array
+    console.log('ClubsContext error:', e)
   }
   
-  // Mock forum data
-  const mockClasses = ['CS 201 – Data Structures', 'ENGL 101 – Writing', 'MATH 150 – Calc I']
-  const mockPublicForums = ['Campus Events', 'Clubs & Orgs']
-  const mockPrivateForums = ['Roommates', 'Project Group']
+  // Organize forums by type
+  const classForums = forums.filter(f => f.type === 'class')
+  const publicForums = forums.filter(f => f.type === 'campus' || f.type === 'public')
+  const privateForums = forums.filter(f => f.type === 'private')
+  const clubForums = adminClubs.map(club => ({
+    name: `${club.name} Forum`,
+    clubId: club.id,
+    forumId: club.forumId,
+  }))
   
   const [classesExpanded, setClassesExpanded] = React.useState(true)
   const [publicExpanded, setPublicExpanded] = React.useState(true)
   const [privateExpanded, setPrivateExpanded] = React.useState(true)
 
-  // Mock user data - replace with real data
-  const mockUser = {
-    name: 'Alex Smith',
-    headline: 'CS major @ URI 🎓 Always down to study or grab coffee ☕ Love hooping at the rec and late night coding sessions 💻 Hit me up if you need a study buddy!',
-    location: 'Kingston, RI',
-    avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-    profileViewers: 334,
-    socialLinks: {
-      instagram: '@alexsmith',
-      spotify: 'Alex Smith',
-      appleMusic: 'Alex Smith',
-    },
+  // Get user profile data (simplified - can be enhanced with useProfiles hook)
+  const userProfile = {
+    name: user?.email?.split('@')[0] || 'User',
+    headline: user?.email || '',
+    location: 'University of Rhode Island',
+    avatar: null,
+    profileViewers: 0,
+    socialLinks: null,
   }
 
   return (
@@ -140,7 +159,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                       fontFamily: theme.typography.fontFamily.heading,
                     }}
                   >
-                    {mockUser.name.charAt(0)}
+                    {userProfile.name.charAt(0).toUpperCase()}
                   </Text>
                 </View>
               </View>
@@ -157,7 +176,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                   marginRight: wp(1),
                 }}
               >
-                {mockUser.name}
+                {userProfile.name}
               </Text>
               <View
                 style={{
@@ -186,7 +205,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
               }}
               numberOfLines={2}
             >
-              {mockUser.headline}
+              {userProfile.headline}
             </Text>
 
             {/* Location */}
@@ -200,7 +219,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                 marginBottom: hp(2),
               }}
             >
-              {mockUser.location}
+              {userProfile.location}
             </Text>
 
           </TouchableOpacity>
@@ -216,13 +235,13 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
           >
             <TouchableOpacity activeOpacity={0.7}>
               <Text style={{ fontSize: hp(1.4), color: theme.colors.textSecondary, fontFamily: theme.typography.fontFamily.body }}>
-                <Text style={{ color: '#70B5F9', fontWeight: '600' }}>{mockUser.profileViewers}</Text> profile viewers
+                <Text style={{ color: '#70B5F9', fontWeight: '600' }}>{userProfile.profileViewers}</Text> profile viewers
               </Text>
             </TouchableOpacity>
           </View>
 
           {/* Social Links Section */}
-          {mockUser.socialLinks && (
+          {userProfile.socialLinks && (
             <View
               style={{
                 paddingVertical: hp(2),
@@ -243,7 +262,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                 Connect
               </Text>
               <View style={{ gap: hp(1) }}>
-                {mockUser.socialLinks.instagram && (
+                {userProfile.socialLinks?.instagram && (
                   <TouchableOpacity
                     activeOpacity={0.7}
                     style={{
@@ -263,11 +282,11 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                         fontFamily: theme.typography.fontFamily.body,
                       }}
                     >
-                      {mockUser.socialLinks.instagram}
+                      {userProfile.socialLinks.instagram}
                     </Text>
                   </TouchableOpacity>
                 )}
-                {mockUser.socialLinks.spotify && (
+                {userProfile.socialLinks?.spotify && (
                   <TouchableOpacity
                     activeOpacity={0.7}
                     style={{
@@ -287,11 +306,11 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                         fontFamily: theme.typography.fontFamily.body,
                       }}
                     >
-                      {mockUser.socialLinks.spotify}
+                      {userProfile.socialLinks.spotify}
                     </Text>
                   </TouchableOpacity>
                 )}
-                {mockUser.socialLinks.appleMusic && (
+                {userProfile.socialLinks?.appleMusic && (
                   <TouchableOpacity
                     activeOpacity={0.7}
                     style={{
@@ -311,7 +330,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                         fontFamily: theme.typography.fontFamily.body,
                       }}
                     >
-                      {mockUser.socialLinks.appleMusic}
+                      {userProfile.socialLinks.appleMusic}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -427,69 +446,47 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
               />
             </TouchableOpacity>
             {classesExpanded &&
-              mockClasses.map((name) => {
-                // Find forum image for this class
-                const classForum = {
-                  'CS 201 – Data Structures': 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800',
-                  'ENGL 101 – Writing': 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800',
-                  'MATH 150 – Calc I': 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800',
-                }[name] || null
-
-                return (
-                  <TouchableOpacity
-                    key={name}
+              classForums.map((forum) => (
+                <TouchableOpacity
+                  key={forum.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingLeft: wp(12),
+                    paddingVertical: hp(1),
+                    paddingRight: wp(3),
+                    borderRadius: theme.radius.md,
+                    marginLeft: wp(3),
+                    marginBottom: hp(0.3),
+                  }}
+                  activeOpacity={0.7}
+                  onPress={() => onNavigate('/forum')}
+                >
+                  <View
                     style={{
-                      flexDirection: 'row',
+                      width: hp(3),
+                      height: hp(3),
+                      borderRadius: hp(1.5),
+                      backgroundColor: theme.colors.backgroundSecondary,
+                      marginRight: wp(2),
                       alignItems: 'center',
-                      paddingLeft: wp(12),
-                      paddingVertical: hp(1),
-                      paddingRight: wp(3),
-                      borderRadius: theme.radius.md,
-                      marginLeft: wp(3),
-                      marginBottom: hp(0.3),
+                      justifyContent: 'center',
                     }}
-                    activeOpacity={0.7}
-                    onPress={() => onNavigate('/forum')}
                   >
-                    {classForum ? (
-                      <Image
-                        source={{ uri: classForum }}
-                        style={{
-                          width: hp(3),
-                          height: hp(3),
-                          borderRadius: hp(1.5),
-                          marginRight: wp(2),
-                        }}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View
-                        style={{
-                          width: hp(3),
-                          height: hp(3),
-                          borderRadius: hp(1.5),
-                          backgroundColor: theme.colors.backgroundSecondary,
-                          marginRight: wp(2),
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Ionicons name="school-outline" size={hp(1.5)} color={theme.colors.textSecondary} />
-                      </View>
-                    )}
-                    <Text
-                      style={{
-                        fontSize: hp(1.6),
-                        color: theme.colors.textSecondary,
-                        fontFamily: theme.typography.fontFamily.body,
-                        opacity: 0.85,
-                      }}
-                    >
-                      {name}
-                    </Text>
-                  </TouchableOpacity>
-                )
-              })}
+                    <Ionicons name="school-outline" size={hp(1.5)} color={theme.colors.textSecondary} />
+                  </View>
+                  <Text
+                    style={{
+                      fontSize: hp(1.6),
+                      color: theme.colors.textSecondary,
+                      fontFamily: theme.typography.fontFamily.body,
+                      opacity: 0.85,
+                    }}
+                  >
+                    {forum.code ? `${forum.code} – ${forum.name}` : forum.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
 
             {/* Public forums (expandable) */}
             <TouchableOpacity
@@ -542,68 +539,60 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
               />
             </TouchableOpacity>
             {publicExpanded &&
-              mockPublicForums.map((name) => {
-                const publicForumImages = {
-                  'Campus Events': 'https://images.unsplash.com/photo-1511578314322-379afb476865?w=800',
-                  'Clubs & Orgs': 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800',
-                }
-                const forumImage = publicForumImages[name] || null
-
-                return (
-                  <TouchableOpacity
-                    key={name}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingLeft: wp(12),
-                      paddingVertical: hp(1),
-                      paddingRight: wp(3),
-                      borderRadius: theme.radius.md,
-                      marginLeft: wp(3),
-                      marginBottom: hp(0.3),
-                    }}
-                    activeOpacity={0.7}
-                    onPress={() => onNavigate('/forum')}
-                  >
-                    {forumImage ? (
-                      <Image
-                        source={{ uri: forumImage }}
-                        style={{
-                          width: hp(3),
-                          height: hp(3),
-                          borderRadius: hp(1.5),
-                          marginRight: wp(2),
-                        }}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View
-                        style={{
-                          width: hp(3),
-                          height: hp(3),
-                          borderRadius: hp(1.5),
-                          backgroundColor: theme.colors.backgroundSecondary,
-                          marginRight: wp(2),
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Ionicons name="people-outline" size={hp(1.5)} color={theme.colors.textSecondary} />
-                      </View>
-                    )}
-                    <Text
+              publicForums.map((forum) => (
+                <TouchableOpacity
+                  key={forum.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingLeft: wp(12),
+                    paddingVertical: hp(1),
+                    paddingRight: wp(3),
+                    borderRadius: theme.radius.md,
+                    marginLeft: wp(3),
+                    marginBottom: hp(0.3),
+                  }}
+                  activeOpacity={0.7}
+                  onPress={() => onNavigate('/forum')}
+                >
+                  {forum.image ? (
+                    <Image
+                      source={{ uri: forum.image }}
                       style={{
-                        fontSize: hp(1.6),
-                        color: theme.colors.textSecondary,
-                        fontFamily: theme.typography.fontFamily.body,
-                        opacity: 0.85,
+                        width: hp(3),
+                        height: hp(3),
+                        borderRadius: hp(1.5),
+                        marginRight: wp(2),
+                      }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View
+                      style={{
+                        width: hp(3),
+                        height: hp(3),
+                        borderRadius: hp(1.5),
+                        backgroundColor: theme.colors.backgroundSecondary,
+                        marginRight: wp(2),
+                        alignItems: 'center',
+                        justifyContent: 'center',
                       }}
                     >
-                      {name}
-                    </Text>
-                  </TouchableOpacity>
-                )
-              })}
+                      <Ionicons name="people-outline" size={hp(1.5)} color={theme.colors.textSecondary} />
+                    </View>
+                  )}
+                  <Text
+                    style={{
+                      fontSize: hp(1.6),
+                      color: theme.colors.textSecondary,
+                      fontFamily: theme.typography.fontFamily.body,
+                      opacity: 0.85,
+                    }}
+                  >
+                    {forum.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
 
             {/* Private forums (expandable) */}
             <TouchableOpacity
@@ -655,17 +644,12 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                 style={{ opacity: 0.7 }}
               />
             </TouchableOpacity>
-            {privateExpanded &&
-              mockPrivateForums.map((name) => {
-                const privateForumImages = {
-                  'Roommates': 'https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=800',
-                  'Project Group': 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800',
-                }
-                const forumImage = privateForumImages[name] || null
-
-                return (
+            {privateExpanded && (
+              <>
+                {/* Regular private forums */}
+                {privateForums.map((forum) => (
                   <TouchableOpacity
-                    key={name}
+                    key={forum.id}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
@@ -677,11 +661,11 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                       marginBottom: hp(0.3),
                     }}
                     activeOpacity={0.7}
-                    onPress={() => onNavigate('/forum')}
+                    onPress={() => onNavigate(`/forum?forumId=${forum.id}`)}
                   >
-                    {forumImage ? (
+                    {forum.image ? (
                       <Image
-                        source={{ uri: forumImage }}
+                        source={{ uri: forum.image }}
                         style={{
                           width: hp(3),
                           height: hp(3),
@@ -713,83 +697,83 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                         opacity: 0.85,
                       }}
                     >
-                      {name}
+                      {forum.name}
                     </Text>
                   </TouchableOpacity>
-                )
-              })}
+                ))}
+                
+                {/* Club forums (not the clubs themselves) */}
+                {clubForums.map((clubForum) => {
+                  const club = adminClubs.find(c => c.id === clubForum.clubId)
+                  return (
+                    <TouchableOpacity
+                      key={clubForum.forumId}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingLeft: wp(12),
+                        paddingVertical: hp(1),
+                        paddingRight: wp(3),
+                        borderRadius: theme.radius.md,
+                        marginLeft: wp(3),
+                        marginBottom: hp(0.3),
+                      }}
+                      activeOpacity={0.7}
+                      onPress={() => onNavigate(`/forum?forumId=${clubForum.forumId}`)}
+                    >
+                      {club?.avatar ? (
+                        <Image
+                          source={{ uri: club.avatar }}
+                          style={{
+                            width: hp(3),
+                            height: hp(3),
+                            borderRadius: hp(1.5),
+                            marginRight: wp(2),
+                          }}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View
+                          style={{
+                            width: hp(3),
+                            height: hp(3),
+                            borderRadius: hp(1.5),
+                            backgroundColor: theme.colors.backgroundSecondary,
+                            marginRight: wp(2),
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: hp(1.5),
+                              color: theme.colors.accent,
+                              fontFamily: theme.typography.fontFamily.heading,
+                              fontWeight: '700',
+                            }}
+                          >
+                            {club?.name?.charAt(0).toUpperCase() || 'C'}
+                          </Text>
+                        </View>
+                      )}
+                      <Text
+                        style={{
+                          fontSize: hp(1.6),
+                          color: theme.colors.textSecondary,
+                          fontFamily: theme.typography.fontFamily.body,
+                          opacity: 0.85,
+                        }}
+                      >
+                        {clubForum.name}
+                      </Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </>
+            )}
           </View>
 
-          {/* Manage Organizations Section */}
-          {adminClubs.length > 0 && (
-            <View
-              style={{
-                paddingVertical: hp(2),
-                paddingHorizontal: wp(4),
-                borderBottomWidth: 1,
-                borderBottomColor: theme.colors.border,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: hp(1.6),
-                  fontWeight: '600',
-                  color: theme.colors.textPrimary,
-                  fontFamily: theme.typography.fontFamily.body,
-                  marginBottom: hp(1.5),
-                }}
-              >
-                Manage organizations
-              </Text>
-              {adminClubs.map((club: any) => (
-                <TouchableOpacity
-                  key={club.id}
-                  activeOpacity={0.7}
-                  onPress={() => onNavigate(`/clubs/${club.id}`)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    marginBottom: hp(1.5),
-                  }}
-                >
-                  <View
-                    style={{
-                      width: hp(3.5),
-                      height: hp(3.5),
-                      borderRadius: hp(0.5),
-                      backgroundColor: theme.colors.bondedPurple,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginRight: wp(2),
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: hp(1.5),
-                        fontWeight: '700',
-                        color: theme.colors.textPrimary,
-                      }}
-                    >
-                      {club.name.charAt(0)}
-                    </Text>
-                  </View>
-                  <Text
-                    style={{
-                      fontSize: hp(1.5),
-                      color: theme.colors.textSecondary,
-                      opacity: 0.9,
-                      fontFamily: theme.typography.fontFamily.body,
-                      flex: 1,
-                    }}
-                  >
-                    {club.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-
-          {/* Create Organization */}
+          {/* Create Organization - with admin clubs in same box */}
           <View
             style={{
               paddingVertical: hp(2),
@@ -805,6 +789,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                 flexDirection: 'row',
                 alignItems: 'center',
                 paddingVertical: hp(1.5),
+                marginBottom: adminClubs.length > 0 ? hp(1.5) : 0,
               }}
             >
               <View
@@ -837,6 +822,86 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
                 Create organization
               </Text>
             </TouchableOpacity>
+
+            {/* Admin clubs in same box */}
+            {(adminClubs && adminClubs.length > 0) && (
+              <>
+                {adminClubs.map((club) => {
+                  if (!club || !club.id) return null
+                  return (
+                  <TouchableOpacity
+                    key={club.id}
+                    activeOpacity={0.7}
+                    onPress={() => onNavigate(`/clubs/${club.id}`)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: hp(1.2),
+                      paddingHorizontal: wp(2),
+                      borderRadius: theme.radius.md,
+                      marginBottom: hp(0.5),
+                      marginTop: hp(0.5),
+                    }}
+                  >
+                    {club.avatar ? (
+                      <Image
+                        source={{ uri: club.avatar }}
+                        style={{
+                          width: hp(3.5),
+                          height: hp(3.5),
+                          borderRadius: hp(0.5),
+                          marginRight: wp(2),
+                        }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: hp(3.5),
+                          height: hp(3.5),
+                          borderRadius: hp(0.5),
+                          backgroundColor: theme.colors.backgroundSecondary,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: wp(2),
+                          borderWidth: 1,
+                          borderColor: theme.colors.border,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: hp(1.8),
+                            color: theme.colors.accent,
+                            fontFamily: theme.typography.fontFamily.heading,
+                            fontWeight: '700',
+                          }}
+                        >
+                          {club.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <Text
+                    style={{
+                      fontSize: hp(1.6),
+                      color: theme.colors.textPrimary,
+                      fontFamily: theme.typography.fontFamily.body,
+                      fontWeight: '500',
+                      flex: 1,
+                    }}
+                  >
+                    {club.name}
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={hp(2)}
+                    color={theme.colors.textSecondary}
+                    style={{ opacity: 0.5 }}
+                  />
+                </TouchableOpacity>
+                  )
+                })}
+              </>
+            )}
           </View>
 
           {/* Navigation Items */}
@@ -851,11 +916,7 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
               label="Home"
               onPress={() => onNavigate('/forum')}
             />
-            <DrawerItem
-              icon="people-outline"
-              label="My Network"
-              onPress={() => onNavigate('/yearbook')}
-            />
+            {/* My Network disabled in V1 (friends-only yearbook in V2). */}
             <DrawerItem
               icon="chatbubbles-outline"
               label="Messaging"
@@ -871,21 +932,26 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
               label="Calendar"
               onPress={() => onNavigate('/calendar')}
             />
-            <DrawerItem
-              icon="school-outline"
-              label="Rate My Professor"
-              onPress={() => onNavigate('/rate-professor')}
-            />
+            {isFeatureEnabled('RATE_MY_PROFESSOR') && (
+              <DrawerItem
+                icon="school-outline"
+                label="Rate My Professor"
+                onPress={() => onNavigate('/rate-professor')}
+              />
+            )}
             <DrawerItem
               icon="people-circle-outline"
               label="Clubs & Organizations"
               onPress={() => onNavigate('/clubs')}
             />
-            <DrawerItem
-              icon="sparkles"
-              label="Link AI"
-              onPress={() => onNavigate('/link-ai')}
-            />
+            
+            {isFeatureEnabled('LINK_AI') && (
+              <DrawerItem
+                icon="sparkles"
+                label="Link AI"
+                onPress={() => onNavigate('/link-ai')}
+              />
+            )}
           </View>
 
           {/* Settings */}
@@ -931,9 +997,106 @@ const DrawerContent = ({ onNavigate }: { onNavigate: (path: string) => void }) =
 
 const RootLayout = () => {
   const router = useRouter()
+  const pathname = usePathname() // Get current route
   const drawerRef = useRef<DrawerLayout | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [showContent, setShowContent] = useState(false)
+  const { user, isAuthenticated, setUser, setSession, logout } = useAuthStore()
+  const { setUserId: setOnboardingUserId, clearUserId: clearOnboardingUserId } = useOnboardingStore()
+  const [isCheckingSession, setIsCheckingSession] = useState(true)
+  const initialCheckCompleteRef = useRef(false)
+
+  // Routes where drawer should be DISABLED (auth, onboarding, welcome)
+  const drawerDisabledRoutes = [
+    '/',
+    '/index',
+    '/welcome',
+    '/login',
+    '/otp',
+    '/onboarding',
+    '/auth/callback',
+  ]
+
+  // Check if current route should have drawer disabled
+  const isDrawerDisabledRoute = drawerDisabledRoutes.some(route => pathname === route || pathname?.startsWith('/auth'))
+
+  // Check Supabase session on app startup and sync with authStore
+  // This ensures we don't use stale persisted auth state
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        // Check if a valid session exists FIRST before any auth changes
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        if (error) {
+          console.error('❌ Error checking session:', error)
+          // Clear auth state if there's an error
+          await logout()
+          await supabase.auth.signOut()
+          setIsCheckingSession(false)
+          initialCheckCompleteRef.current = true
+          return
+        }
+
+        if (session?.user) {
+          // Valid session exists - sync with authStore
+          console.log('✅ Valid session found, syncing auth state')
+          setUser(session.user)
+          setSession(session)
+          // Sync onboarding store with user ID
+          setOnboardingUserId(session.user.id)
+        } else {
+          // No valid session - clear auth state IMMEDIATELY
+          console.log('ℹ️ No valid session found, clearing auth state')
+          await logout()
+          clearOnboardingUserId()
+          // Force clear any persisted state
+          await supabase.auth.signOut()
+        }
+      } catch (error) {
+        console.error('❌ Error in checkSession:', error)
+        await logout()
+        await supabase.auth.signOut()
+      } finally {
+        setIsCheckingSession(false)
+        // Mark initial check as complete IMMEDIATELY (no delay)
+        // This prevents race condition where listener fires before flag is set
+        initialCheckCompleteRef.current = true
+      }
+    }
+
+    checkSession()
+
+    // Listen for auth state changes from Supabase
+    // IMPORTANT: Only update auth state if we've completed the initial session check
+    // This prevents race conditions where the listener fires before we've cleared stale state
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔔 Auth state changed:', event, session?.user?.email, 'initialCheckComplete:', initialCheckCompleteRef.current)
+      
+      // Don't process auth changes until initial check is complete
+      if (!initialCheckCompleteRef.current) {
+        console.log('⏳ Skipping auth state change - initial check not complete')
+        return
+      }
+      
+      if (session?.user) {
+        setUser(session.user)
+        setSession(session)
+        // Sync onboarding store with user ID
+        setOnboardingUserId(session.user.id)
+      } else {
+        // User signed out or session expired
+        // Note: logout() is async but we can't await in this callback
+        // The async operation will complete in the background
+        logout().catch(err => console.error('Error in logout:', err))
+        clearOnboardingUserId()
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [setUser, setSession, logout, setOnboardingUserId, clearOnboardingUserId])
 
   useEffect(() => {
     const preloadResources = async () => {
@@ -966,7 +1129,6 @@ const RootLayout = () => {
         await Image.prefetch(logoUri)
         
         // Give time for other resources to load
-        // Also allows stories context to initialize
         await new Promise((resolve) => setTimeout(resolve, 500)) // Minimum loading time
       } catch (error) {
         console.log('Error preloading resources:', error)
@@ -985,24 +1147,25 @@ const RootLayout = () => {
 
   const navigateAndClose = (path: string) => {
     router.push(path as never)
-    drawerRef.current?.closeDrawer()
+    // Only close drawer if authenticated and drawer exists
+    if (isAuthenticated && user && drawerRef.current) {
+      drawerRef.current.closeDrawer()
+    }
   }
 
-  const renderDrawer = () => {
-    return <DrawerContent onNavigate={navigateAndClose} />
-  }
-
-  // Show loading screen while resources load
-  if (!showContent) {
+  // Show loading screen while resources load OR while checking session
+  if (!showContent || isCheckingSession) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
         <ThemeProvider>
           <Loading 
             size={80} 
             duration={1200}
-            fadeOut={!isLoading}
+            fadeOut={!isLoading && !isCheckingSession}
             onFadeComplete={() => {
-              setShowContent(true)
+              if (!isCheckingSession) {
+                setShowContent(true)
+              }
             }}
           />
         </ThemeProvider>
@@ -1010,37 +1173,109 @@ const RootLayout = () => {
     )
   }
 
+  // If user is NOT authenticated, render only the Stack (no providers, no drawer)
+  // This prevents all data fetching hooks from running on login/welcome screens
+  // IMPORTANT: No DrawerLayout at all when not authenticated - like LinkedIn/Instagram
+  // The drawer should be completely inaccessible (no swipe, no gestures, no component)
+  
+  // CRITICAL: Check BOTH authStore state AND ensure session check is complete
+  // Also verify user object actually exists (not just truthy check)
+  // AND check if current route allows drawer
+  const hasValidUser = user && user.id && user.email
+  const shouldShowDrawer = isAuthenticated && hasValidUser && !isCheckingSession && !isDrawerDisabledRoute
+  
+  // CRITICAL: Never render DrawerLayout when not authenticated
+  // This prevents any drawer gestures from working
+  if (!shouldShowDrawer) {
+    // Ensure drawer ref is null when not authenticated
+    drawerRef.current = null
+    
+    // Debug logging
+    if (__DEV__) {
+      console.log('🚫 Drawer disabled - isAuthenticated:', isAuthenticated, 'hasValidUser:', hasValidUser, 'isCheckingSession:', isCheckingSession, 'isDrawerDisabledRoute:', isDrawerDisabledRoute, 'pathname:', pathname, 'user:', user)
+    }
+    
+    // NO DrawerLayout rendered - drawer is completely inaccessible
+    // Using a plain View wrapper instead of GestureHandlerRootView to prevent any gesture handling
+    return (
+      <View style={{ flex: 1 }}>
+        <ThemeProvider>
+          <QueryProvider>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                gestureEnabled: false,
+                animation: 'none',
+              }}
+            />
+          </QueryProvider>
+        </ThemeProvider>
+      </View>
+    )
+  }
+  
+  // Debug logging when drawer should be shown
+  if (__DEV__) {
+    console.log('✅ Drawer enabled - isAuthenticated:', isAuthenticated, 'hasValidUser:', hasValidUser, 'isCheckingSession:', isCheckingSession, 'isDrawerDisabledRoute:', isDrawerDisabledRoute, 'pathname:', pathname)
+  }
+
+  // User is authenticated - render full app with providers and drawer
+  // DrawerLayout is ONLY rendered when authenticated AND session check is complete
+  // Double-check authentication before rendering drawer
+  if (!isAuthenticated || !user) {
+    // Fallback safety check - should never reach here, but just in case
+    return (
+      <View style={{ flex: 1 }}>
+        <ThemeProvider>
+          <QueryProvider>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                gestureEnabled: false,
+                animation: 'none',
+              }}
+            />
+          </QueryProvider>
+        </ThemeProvider>
+      </View>
+    )
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <DrawerLayout
-          ref={drawerRef}
-          drawerWidth={SCREEN_WIDTH * 0.75}
-          drawerPosition="left"
-          drawerType="front"
-          edgeWidth={SCREEN_WIDTH * 0.4}
-          renderNavigationView={renderDrawer}
-        >
+        <QueryProvider>
           <StoriesProvider>
             <EventsProvider>
               <ClubsProvider>
-                <QueryProvider>
-                  <Stack
-                    screenOptions={{
-                      headerShown: false,
-                      gestureEnabled: false,
-                      animation: 'none',
-                    }}
-                  />
-                </QueryProvider>
+                <MessagesProvider>
+                  <DrawerLayout
+                    ref={drawerRef}
+                    drawerWidth={SCREEN_WIDTH * 0.75}
+                    drawerPosition="left"
+                    drawerType="front"
+                    edgeWidth={SCREEN_WIDTH * 0.4}
+                    drawerLockMode="unlocked"
+                    renderNavigationView={() => <DrawerContent onNavigate={navigateAndClose} />}
+                  >
+                    <Stack
+                      screenOptions={{
+                        headerShown: false,
+                        gestureEnabled: false,
+                        animation: 'none',
+                      }}
+                    />
+                  </DrawerLayout>
+                  {/* Global onboarding nudge */}
+                  <OnboardingNudge />
+                </MessagesProvider>
               </ClubsProvider>
             </EventsProvider>
           </StoriesProvider>
-        </DrawerLayout>
+        </QueryProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   )
 }
 
 export default RootLayout
-

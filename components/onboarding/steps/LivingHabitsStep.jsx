@@ -1,9 +1,9 @@
-import { View, Text, StyleSheet, ScrollView } from 'react-native'
 import React, { useState } from 'react'
-import Picker from '../../Picker'
-import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
+import { ScrollView, StyleSheet, Text } from 'react-native'
 import { ONBOARDING_THEME } from '../../../constants/onboardingTheme'
-import { hp, wp } from '../../../helpers/common'
+import { hp } from '../../../helpers/common'
+import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
+import Picker from '../../Picker'
 
 const LivingHabitsStep = ({ formData, updateFormData, onScroll }) => {
   const styles = createStyles(ONBOARDING_THEME)
@@ -58,6 +58,9 @@ const LivingHabitsStep = ({ formData, updateFormData, onScroll }) => {
       showsVerticalScrollIndicator={false}
       onScroll={onScroll}
       scrollEventThrottle={16}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled={true}
+      bounces={true}
     >
       <Text style={styles.title}>Living Habits</Text>
       <Text style={styles.subtitle}>Help us find your perfect roommate (optional)</Text>
@@ -113,7 +116,7 @@ const createStyles = () => StyleSheet.create({
   },
   contentContainer: {
     paddingVertical: hp(2),
-    paddingBottom: hp(6),
+    paddingBottom: hp(20), // Extra padding for fixed navigation buttons at bottom
   },
   title: {
     fontSize: hp(4),

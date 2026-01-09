@@ -78,12 +78,8 @@ export default function Home() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-xl border-b border-purple-100/50">
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="text-2xl font-semibold bg-gradient-to-r from-purple-600 to-purple-700 bg-clip-text text-transparent">Bonded</div>
-          <div className="flex items-center gap-6">
-            <div className="flex gap-6 text-sm text-gray-600">
-              <a href="#about" className="hover:text-purple-600 transition-colors">About</a>
-              <a href="#contact" className="hover:text-purple-600 transition-colors">Contact</a>
-            </div>
-            <div className="flex items-center gap-4 pl-6 border-l border-gray-200">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 pl-0 lg:pl-6 lg:border-l lg:border-gray-200">
               <a
                 href="https://www.linkedin.com/company/getbondedapp"
                 target="_blank"
@@ -409,5 +405,12 @@ export default function Home() {
     </main>
   )
 }
+
+
+
+
+
+
+
 
 

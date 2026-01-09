@@ -1,23 +1,16 @@
-import React, { useState } from 'react'
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { useAppTheme } from './theme'
-import { hp, wp } from '../helpers/common'
+import React, { useState } from 'react'
+import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import AppTopBar from '../components/AppTopBar'
 import BottomNav from '../components/BottomNav'
+import { hp, wp } from '../helpers/common'
+import { useAppTheme } from './theme'
 
-const MOCK_SCHOOLS = [
-  { id: '1', name: 'Stanford University', location: 'Stanford, CA', students: '17,000+' },
-  { id: '2', name: 'MIT', location: 'Cambridge, MA', students: '11,000+' },
-  { id: '3', name: 'Harvard University', location: 'Cambridge, MA', students: '23,000+' },
-  { id: '4', name: 'UC Berkeley', location: 'Berkeley, CA', students: '45,000+' },
-  { id: '5', name: 'Yale University', location: 'New Haven, CT', students: '13,000+' },
-  { id: '6', name: 'Princeton University', location: 'Princeton, NJ', students: '8,000+' },
-  { id: '7', name: 'Columbia University', location: 'New York, NY', students: '33,000+' },
-  { id: '8', name: 'UCLA', location: 'Los Angeles, CA', students: '45,000+' },
-]
+// TODO: Wire to real Supabase data
+// - Fetch schools from universities table
+const schools: any[] = []
 
 export default function BrowseSchools() {
   const theme = useAppTheme()
@@ -25,7 +18,7 @@ export default function BrowseSchools() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
 
-  const filteredSchools = MOCK_SCHOOLS.filter((school) =>
+  const filteredSchools = schools.filter((school) =>
     school.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     school.location.toLowerCase().includes(searchQuery.toLowerCase())
   )

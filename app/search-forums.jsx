@@ -1,18 +1,15 @@
-import React, { useState } from 'react'
-import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { useAppTheme } from './theme'
-import { hp, wp } from '../helpers/common'
+import React, { useState } from 'react'
+import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import AppTopBar from '../components/AppTopBar'
+import { hp, wp } from '../helpers/common'
+import { useAppTheme } from './theme'
 
-const MOCK_FORUMS = [
-  { id: 'main', name: 'Main forum', type: 'main' },
-  { id: 'cs-201', name: 'CS 201 – Data Structures', type: 'class' },
-  { id: 'events', name: 'Campus Events', type: 'public' },
-  { id: 'rmp', name: 'Rate my professor', type: 'rmp' },
-]
+// TODO: Wire to real Supabase data
+// - Use useForums hook to fetch forums
+const forums: any[] = []
 
 export default function SearchForums() {
   const theme = useAppTheme()
@@ -20,7 +17,7 @@ export default function SearchForums() {
   const router = useRouter()
   const [query, setQuery] = useState('')
 
-  const filtered = MOCK_FORUMS.filter((f) =>
+  const filtered = forums.filter((f) =>
     f.name.toLowerCase().includes(query.toLowerCase())
   )
 

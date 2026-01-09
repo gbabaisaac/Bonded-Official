@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   View,
   Modal,
@@ -14,6 +14,8 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
+import { Platform } from 'react-native'
+import { BlurView } from 'expo-blur'
 import { hp, wp } from '../../helpers/common'
 import { useAppTheme } from '../../app/theme'
 import DraggableElement from './DraggableElement'
@@ -83,6 +85,8 @@ export default function StoryEditor({
   const [textSize, setTextSize] = useState(24)
   const [selectedElementId, setSelectedElementId] = useState(null)
   const [selectedElementType, setSelectedElementType] = useState(null) // 'text' or 'sticker'
+  const [showPalette, setShowPalette] = useState(true)
+  const [paletteExpanded, setPaletteExpanded] = useState(false)
 
   const addTextElement = () => {
     if (!currentText.trim()) return
@@ -164,29 +168,23 @@ export default function StoryEditor({
     })
   }
 
+  // Auto-hide palette after inactivity
+  useEffect(() => {
+    if (!showPalette) return
+    const timer = setTimeout(() => setShowPalette(false), 4000)
+    return () => clearTimeout(timer)
+  }, [showPalette, paletteExpanded, selectedElementId, selectedElementType])
+
   return (
     <Modal visible={visible} animationType="slide">
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-            <Ionicons name="close" size={hp(3)} color={theme.colors.white} />
-          </TouchableOpacity>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Edit Story</Text>
-            <Text style={styles.headerSubtitle}>{forumName}</Text>
-          </View>
-          <TouchableOpacity onPress={handlePost} style={styles.headerButton}>
-            <Ionicons name="checkmark" size={hp(3)} color={theme.colors.white} />
-          </TouchableOpacity>
-        </View>
-
         {/* Canvas - Image with overlays */}
         <Pressable
           style={styles.canvas}
           onPress={() => {
             setSelectedElementId(null)
             setSelectedElementType(null)
+            setShowPalette(true)
           }}
         >
           <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
@@ -263,41 +261,64 @@ export default function StoryEditor({
           ))}
         </Pressable>
 
-        {/* Toolbar */}
-        <View style={styles.toolbar}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.toolbarContent}
+        {/* Floating palette */}
+        {showPalette && (
+          <DraggableElement
+            initialX={wp(55)}
+            initialY={hp(68)}
+            initialScale={1}
+            initialRotation={0}
+            isSelected={false}
           >
-            {/* Add Text */}
-            <TouchableOpacity
-              style={styles.toolButton}
-              onPress={() => setIsAddingText(true)}
-            >
-              <Ionicons name="text-outline" size={hp(3)} color={theme.colors.white} />
-              <Text style={styles.toolButtonText}>Text</Text>
-            </TouchableOpacity>
-
-            {/* Add Sticker */}
-            <TouchableOpacity
-              style={styles.toolButton}
-              onPress={() => setShowStickerPicker(true)}
-            >
-              <Ionicons name="happy-outline" size={hp(3)} color={theme.colors.white} />
-              <Text style={styles.toolButtonText}>Sticker</Text>
-            </TouchableOpacity>
-
-            {/* Color Picker */}
-            <TouchableOpacity
-              style={styles.toolButton}
-              onPress={() => setShowColorPicker(!showColorPicker)}
-            >
-              <View style={[styles.colorPreview, { backgroundColor: currentTextColor }]} />
-              <Text style={styles.toolButtonText}>Color</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
+            <BlurView intensity={60} tint={theme.mode === 'dark' ? 'dark' : 'light'} style={styles.palette}>
+              <TouchableOpacity
+                onPress={() => setPaletteExpanded((prev) => !prev)}
+                style={styles.paletteToggle}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={paletteExpanded ? 'chevron-down' : 'ellipsis-horizontal'}
+                  size={hp(2.2)}
+                  color={theme.colors.textPrimary}
+                />
+              </TouchableOpacity>
+              {paletteExpanded && (
+                <View style={styles.paletteRow}>
+                  <TouchableOpacity
+                    style={styles.paletteButton}
+                    onPress={() => {
+                      setIsAddingText(true)
+                      setShowPalette(true)
+                    }}
+                  >
+                    <Ionicons name="text-outline" size={hp(2.2)} color={theme.colors.textPrimary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.paletteButton}
+                    onPress={() => {
+                      setShowStickerPicker(true)
+                      setShowPalette(true)
+                    }}
+                  >
+                    <Ionicons name="happy-outline" size={hp(2.2)} color={theme.colors.textPrimary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.paletteButton}
+                    onPress={() => setShowColorPicker((prev) => !prev)}
+                  >
+                    <View style={[styles.colorPreview, { backgroundColor: currentTextColor, borderColor: theme.colors.textPrimary }]} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.paletteButton} onPress={handlePost}>
+                    <Ionicons name="checkmark" size={hp(2.4)} color={theme.colors.textPrimary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.paletteButton} onPress={onClose}>
+                    <Ionicons name="close" size={hp(2.4)} color={theme.colors.textPrimary} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </BlurView>
+          </DraggableElement>
+        )}
 
         {/* Text Input Modal */}
         {isAddingText && (
@@ -444,8 +465,8 @@ const createStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(1.5),
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   headerButton: {
@@ -455,17 +476,17 @@ const createStyles = (theme) => StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: hp(1.9),
+    fontSize: theme.typography.sizes.lg,
     color: theme.colors.white,
     fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '700',
+    fontWeight: theme.typography.weights.bold,
   },
   headerSubtitle: {
-    fontSize: hp(1.4),
+    fontSize: theme.typography.sizes.sm,
     color: theme.colors.white,
     fontFamily: theme.typography.fontFamily.body,
-    opacity: 0.8,
-    marginTop: hp(0.2),
+    opacity: theme.ui.metaOpacity,
+    marginTop: theme.spacing.xs,
   },
   canvas: {
     flex: 1,
@@ -479,8 +500,8 @@ const createStyles = (theme) => StyleSheet.create({
     position: 'absolute',
   },
   textWrapper: {
-    paddingHorizontal: wp(2),
-    paddingVertical: hp(0.5),
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
     borderRadius: theme.radius.sm,
   },
   textElementText: {

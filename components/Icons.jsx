@@ -44,6 +44,12 @@ const ICON_MAP = {
   'ChevronLeft': 'chevron-back',
   'ChevronRight': 'chevron-forward',
   'Lock': 'lock-closed-outline',
+  'Edit2': 'create-outline',
+  'Trash2': 'trash-outline',
+  'CheckCircle': 'checkmark-circle-outline',
+  'MoreVertical': 'ellipsis-vertical',
+  'Clock': 'time-outline',
+  'Settings': 'settings-outline',
 }
 
 /**
@@ -100,4 +106,10 @@ export const Plus = createIcon('Plus')
 export const ChevronLeft = createIcon('ChevronLeft')
 export const ChevronRight = createIcon('ChevronRight')
 export const Lock = createIcon('Lock')
+export const Edit2 = createIcon('Edit2')
+export const Trash2 = createIcon('Trash2')
+export const CheckCircle = createIcon('CheckCircle')
+export const MoreVertical = createIcon('MoreVertical')
+export const Clock = createIcon('Clock')
+export const Settings = createIcon('Settings')
 

@@ -36,6 +36,7 @@ let photoCache = {
 }
 
 // College-aged search terms for diverse, realistic photos
+// Mix of general and diversity-focused terms to ensure representation
 const SEARCH_TERMS = [
   'young adult portrait',
   'college student',
@@ -46,6 +47,28 @@ const SEARCH_TERMS = [
   'young person',
   'millennial portrait',
   'gen z portrait',
+  'diverse college students',
+  'black college student',
+  'african american student',
+  'black young adult',
+  'diverse university students',
+  'multicultural students',
+  'college student portrait',
+  'university student portrait',
+  'young adult diverse',
+  'student diversity',
+  'black engineering student',
+  'african american engineering student',
+  'black male college student',
+  'black engineering senior',
+  'black male engineering student',
+  'african american male student',
+  'black senior college student',
+  'engineering student portrait',
+  'black male university student',
+  'senior engineering student',
+  'black male senior',
+  'diverse engineering students',
 ]
 
 /**
@@ -133,16 +156,45 @@ export const fetchMultiplePhotos = async (count = 10) => {
   try {
     console.log(`📸 Fetching ${fetchCount} photos from Unsplash (in ${batches} batches)...`)
     
+    // Diverse search terms array - rotates through different terms to ensure diversity
+    // Includes specific terms for black male engineering seniors
+    const diverseSearchTerms = [
+      'college student',
+      'black college student',
+      'black engineering student',
+      'university student',
+      'diverse college students',
+      'young adult portrait',
+      'african american student',
+      'black male engineering student',
+      'campus life',
+      'multicultural students',
+      'black engineering senior',
+      'young professional',
+      'black young adult',
+      'african american engineering student',
+      'student lifestyle',
+      'college student portrait',
+      'black male college student',
+      'university student portrait',
+      'diverse university students',
+      'black male senior',
+      'young person',
+      'african american male student',
+      'gen z portrait',
+      'senior engineering student',
+      'student diversity',
+      'black senior college student',
+      'young adult diverse',
+      'engineering student portrait',
+      'black male university student',
+      'diverse engineering students',
+    ]
+    
     for (let i = 0; i < batches; i++) {
       const batchSize = i === batches - 1 ? fetchCount - (i * MAX_PER_REQUEST) : MAX_PER_REQUEST
-      const searchTerms = [
-        'young adult portrait',
-        'college student',
-        'university student',
-        'young professional',
-        'campus life',
-      ]
-      const searchTerm = searchTerms[i % searchTerms.length]
+      // Rotate through diverse search terms to ensure good mix
+      const searchTerm = diverseSearchTerms[i % diverseSearchTerms.length]
       
       const response = await fetch(
         `${UNSPLASH_API_URL}/photos/random?client_id=${UNSPLASH_ACCESS_KEY}&count=${batchSize}&query=${encodeURIComponent(searchTerm)}&orientation=portrait`,

@@ -1,145 +1,132 @@
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import React, { useState } from 'react'
-import { FlatList, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import React, { useMemo, useState } from 'react'
+import { ActivityIndicator, FlatList, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import BottomNav from '../components/BottomNav'
 import { hp, wp } from '../helpers/common'
+import { useFriends } from '../hooks/useFriends'
+import { useConversations, useCreateConversation } from '../hooks/useMessages'
+import { useProfiles } from '../hooks/useProfiles'
+import { useAuthStore } from '../stores/authStore'
 import { useAppTheme } from './theme'
 
-const MOCK_SUGGESTED_PEOPLE = [
-  { id: 'suggest-1', name: 'Alex', photoUrl: 'https://randomuser.me/api/portraits/men/1.jpg' },
-  { id: 'suggest-2', name: 'Jordan', photoUrl: 'https://randomuser.me/api/portraits/women/2.jpg' },
-  { id: 'suggest-3', name: 'Taylor', photoUrl: 'https://randomuser.me/api/portraits/men/3.jpg' },
-  { id: 'suggest-4', name: 'Casey', photoUrl: 'https://randomuser.me/api/portraits/women/4.jpg' },
-  { id: 'suggest-5', name: 'Riley', photoUrl: 'https://randomuser.me/api/portraits/men/5.jpg' },
-  { id: 'suggest-6', name: 'Morgan', photoUrl: 'https://randomuser.me/api/portraits/women/6.jpg' },
-]
-
-const MOCK_FRIENDS = [
-  { id: 'friend-1', name: 'Alex Johnson', photoUrl: 'https://randomuser.me/api/portraits/men/20.jpg', major: 'Computer Science' },
-  { id: 'friend-2', name: 'Sarah Williams', photoUrl: 'https://randomuser.me/api/portraits/women/21.jpg', major: 'Business' },
-  { id: 'friend-3', name: 'Michael Brown', photoUrl: 'https://randomuser.me/api/portraits/men/22.jpg', major: 'Engineering' },
-  { id: 'friend-4', name: 'Emily Davis', photoUrl: 'https://randomuser.me/api/portraits/women/23.jpg', major: 'Psychology' },
-  { id: 'friend-5', name: 'David Miller', photoUrl: 'https://randomuser.me/api/portraits/men/24.jpg', major: 'Biology' },
-  { id: 'friend-6', name: 'Jessica Garcia', photoUrl: 'https://randomuser.me/api/portraits/women/25.jpg', major: 'Marketing' },
-]
-
-const MOCK_PRIVATE_FORUMS = [
-  { id: 'forum-1', name: 'Roommates', memberCount: 4 },
-  { id: 'forum-2', name: 'Project Group', memberCount: 6 },
-  { id: 'forum-3', name: 'Study Group CS 201', memberCount: 8 },
-  { id: 'forum-4', name: 'Dorm Floor 3', memberCount: 12 },
-]
-
-const MOCK_MESSAGES = [
-  {
-    id: 'msg-1',
-    userId: 'user-1',
-    userName: 'Adam',
-    userPhoto: 'https://randomuser.me/api/portraits/men/10.jpg',
-    lastMessage: "Hey, what's up?",
-    timestamp: '2:05 PM',
-    unreadCount: 0,
-    isOnline: true,
-  },
-  {
-    id: 'msg-2',
-    userId: 'user-2',
-    userName: 'Sarah',
-    userPhoto: 'https://randomuser.me/api/portraits/women/11.jpg',
-    lastMessage: 'I was thinking we could study together for the midterm',
-    timestamp: '11:30 AM',
-    unreadCount: 2,
-    isOnline: false,
-  },
-  {
-    id: 'msg-3',
-    userId: 'user-3',
-    userName: 'John',
-    userPhoto: 'https://randomuser.me/api/portraits/men/12.jpg',
-    lastMessage: 'See you at the library later?',
-    timestamp: 'Yesterday',
-    unreadCount: 0,
-    isOnline: true,
-  },
-  {
-    id: 'msg-4',
-    userId: 'user-4',
-    userName: 'Emily',
-    userPhoto: 'https://randomuser.me/api/portraits/women/13.jpg',
-    lastMessage: 'Are you going to the campus event tonight?',
-    timestamp: 'Sunday',
-    unreadCount: 0,
-    isOnline: false,
-  },
-  {
-    id: 'msg-5',
-    userId: 'user-5',
-    userName: 'Michael',
-    userPhoto: 'https://randomuser.me/api/portraits/men/14.jpg',
-    lastMessage: 'Thanks for the notes! Really helped me out',
-    timestamp: 'Saturday',
-    unreadCount: 0,
-    isOnline: true,
-  },
-  {
-    id: 'msg-6',
-    userId: 'user-6',
-    userName: 'Jessica',
-    userPhoto: 'https://randomuser.me/api/portraits/women/15.jpg',
-    lastMessage: 'Can you send me the assignment details?',
-    timestamp: 'Friday',
-    unreadCount: 1,
-    isOnline: false,
-  },
-  {
-    id: 'msg-7',
-    userId: 'user-7',
-    userName: 'David',
-    userPhoto: 'https://randomuser.me/api/portraits/men/16.jpg',
-    lastMessage: 'The study group is meeting at 3pm',
-    timestamp: 'Thursday',
-    unreadCount: 0,
-    isOnline: false,
-  },
-  {
-    id: 'msg-8',
-    userId: 'user-8',
-    userName: 'Olivia',
-    userPhoto: 'https://randomuser.me/api/portraits/women/17.jpg',
-    lastMessage: 'See you in class!',
-    timestamp: 'Wednesday',
-    unreadCount: 0,
-    isOnline: true,
-  },
-]
+// Helper to format timestamp
+const formatTimestamp = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  const now = new Date()
+  const diff = now - date
+  
+  // Less than 1 minute
+  if (diff < 60 * 1000) return 'Just now'
+  // Less than 1 hour
+  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))}m`
+  // Less than 24 hours
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))}h`
+  // Less than 7 days
+  if (diff < 7 * 24 * 60 * 60 * 1000) return `${Math.floor(diff / (24 * 60 * 60 * 1000))}d`
+  // Else show date
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
 export default function Messages() {
   const router = useRouter()
   const theme = useAppTheme()
+  const { user } = useAuthStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [isNewChatModalVisible, setIsNewChatModalVisible] = useState(false)
   const [isFriendSelectionVisible, setIsFriendSelectionVisible] = useState(false)
   const [isForumSelectionVisible, setIsForumSelectionVisible] = useState(false)
   const [activeProfile, setActiveProfile] = useState(null)
 
-  const filteredMessages = MOCK_MESSAGES.filter((msg) =>
-    msg.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    msg.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  // Fetch real data
+  const { data: conversations = [], isLoading: conversationsLoading } = useConversations()
+  const { data: allProfiles = [], isLoading: profilesLoading } = useProfiles({})
+  const { data: friendsList = [], isLoading: friendsLoading } = useFriends()
+  const createConversation = useCreateConversation()
+
+  // Suggested people = profiles not in current conversations and not friends
+  const suggestedPeople = useMemo(() => {
+    if (!allProfiles.length) return []
+    
+    // Get IDs of people we already have conversations with
+    const conversationUserIds = new Set()
+    conversations.forEach(conv => {
+      conv.participants?.forEach(p => conversationUserIds.add(p.id))
+    })
+    
+    // Get IDs of friends
+    const friendIds = new Set(friendsList.map(f => f.id))
+    
+    // Filter out current user, people we have convos with, and friends
+    return allProfiles
+      .filter(p => p.id !== user?.id && !conversationUserIds.has(p.id) && !friendIds.has(p.id))
+      .slice(0, 10) // Limit to 10 suggestions
+  }, [allProfiles, conversations, friendsList, user?.id])
+
+  // Transform friends to match expected format
+  const friends = useMemo(() => {
+    return friendsList.map(friend => ({
+      id: friend.id,
+      name: friend.full_name || friend.username || 'User',
+      photoUrl: friend.avatar_url,
+      major: friend.major || '',
+    }))
+  }, [friendsList])
+
+  // TODO: Fetch private forums from 'forums' table
+  const privateForums = []
+
+  const filteredMessages = useMemo(() => {
+    if (!searchQuery.trim()) return conversations
+    
+    const query = searchQuery.toLowerCase()
+    return conversations.filter((conv) => {
+      const participantNames = conv.participants?.map(p => 
+        (p.full_name || p.username || '').toLowerCase()
+      ).join(' ') || ''
+      
+      return participantNames.includes(query) ||
+        (conv.lastMessage || '').toLowerCase().includes(query) ||
+        (conv.name || '').toLowerCase().includes(query)
+    })
+  }, [conversations, searchQuery])
+
+  // Handle starting a new conversation
+  const handleStartChat = async (otherUserId, userName) => {
+    try {
+      const conversationId = await createConversation.mutateAsync({ otherUserId })
+      router.push({
+        pathname: '/chat',
+        params: { 
+          conversationId,
+          userId: otherUserId, 
+          userName 
+        },
+      })
+    } catch (error) {
+      console.error('Error starting chat:', error)
+    }
+  }
 
   const renderSuggestedPerson = (person) => (
     <TouchableOpacity
       key={person.id}
       style={styles.suggestedPerson}
       activeOpacity={0.7}
-      onPress={() => {
-        // TODO: Navigate to chat with this person
-      }}
+      onPress={() => handleStartChat(person.id, person.name)}
     >
       <View style={styles.suggestedAvatar}>
-        <Image source={{ uri: person.photoUrl }} style={styles.suggestedAvatarImage} />
+        {person.photoUrl ? (
+          <Image source={{ uri: person.photoUrl }} style={styles.suggestedAvatarImage} />
+        ) : (
+          <View style={[styles.suggestedAvatarImage, { backgroundColor: theme.colors.bondedPurple, alignItems: 'center', justifyContent: 'center' }]}>
+            <Text style={{ color: theme.colors.white, fontSize: hp(2), fontWeight: '600' }}>
+              {(person.name || 'U').charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
       </View>
       <Text style={styles.suggestedName} numberOfLines={1}>
         {person.name}
@@ -147,56 +134,83 @@ export default function Messages() {
     </TouchableOpacity>
   )
 
-  const renderMessageThread = ({ item }) => (
-    <TouchableOpacity
-      style={styles.messageThread}
-      activeOpacity={0.7}
-      onPress={() => {
-        router.push({
-          pathname: '/chat',
-          params: { userId: item.userId, userName: item.userName },
-        })
-      }}
-    >
+  const renderMessageThread = ({ item }) => {
+    // Get the other participant for display
+    const otherParticipant = item.participants?.[0] || {}
+    const displayName = item.type === 'group' 
+      ? (item.name || 'Group Chat')
+      : (otherParticipant.full_name || otherParticipant.username || 'User')
+    const avatarUrl = item.type === 'group'
+      ? null // Could use a group icon
+      : otherParticipant.avatar_url
+    
+    return (
       <TouchableOpacity
-        style={styles.avatarContainer}
+        style={styles.messageThread}
         activeOpacity={0.7}
-        onPress={(e) => {
-          e.stopPropagation()
-          setActiveProfile({
-            id: item.userId,
-            name: item.userName,
-            photo: item.userPhoto,
-            isOnline: item.isOnline,
-            groupjamScore: Math.floor(Math.random() * 40) + 60,
+        onPress={() => {
+          router.push({
+            pathname: '/chat',
+            params: { 
+              conversationId: item.id,
+              userId: otherParticipant.id, 
+              userName: displayName 
+            },
           })
         }}
       >
-        <View style={styles.avatarWrapper}>
-          <Image source={{ uri: item.userPhoto }} style={styles.avatar} />
-          {item.isOnline && <View style={styles.onlineIndicator} />}
+        <TouchableOpacity
+          style={styles.avatarContainer}
+          activeOpacity={0.7}
+          onPress={(e) => {
+            e.stopPropagation()
+            if (item.type !== 'group' && otherParticipant.id) {
+              setActiveProfile({
+                id: otherParticipant.id,
+                name: displayName,
+                photo: avatarUrl,
+                isOnline: false, // TODO: Wire up online status
+                groupjamScore: Math.floor(Math.random() * 40) + 60,
+              })
+            }
+          }}
+        >
+          <View style={styles.avatarWrapper}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, { backgroundColor: theme.colors.bondedPurple, alignItems: 'center', justifyContent: 'center' }]}>
+                <Ionicons 
+                  name={item.type === 'group' ? 'people' : 'person'} 
+                  size={hp(2.5)} 
+                  color={theme.colors.white} 
+                />
+              </View>
+            )}
+            {/* TODO: Online indicator */}
+          </View>
+        </TouchableOpacity>
+        <View style={styles.messageContent}>
+          <View style={styles.messageHeader}>
+            <Text style={styles.userName} numberOfLines={1}>
+              {displayName}
+            </Text>
+            <Text style={styles.timestamp}>{formatTimestamp(item.lastMessageAt)}</Text>
+          </View>
+          <View style={styles.messagePreviewRow}>
+            <Text style={styles.messagePreview} numberOfLines={1}>
+              {item.lastMessage || 'No messages yet'}
+            </Text>
+            {item.unreadCount > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadCount}>{item.unreadCount}</Text>
+              </View>
+            )}
+          </View>
         </View>
       </TouchableOpacity>
-      <View style={styles.messageContent}>
-        <View style={styles.messageHeader}>
-          <Text style={styles.userName} numberOfLines={1}>
-            {item.userName}
-          </Text>
-          <Text style={styles.timestamp}>{item.timestamp}</Text>
-        </View>
-        <View style={styles.messagePreviewRow}>
-          <Text style={styles.messagePreview} numberOfLines={1}>
-            {item.lastMessage}
-          </Text>
-          {item.unreadCount > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadCount}>{item.unreadCount}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </TouchableOpacity>
-  )
+    )
+  }
 
   const styles = createStyles(theme)
 
@@ -268,18 +282,39 @@ export default function Messages() {
             contentContainerStyle={styles.suggestedList}
             decelerationRate="fast"
           >
-            {MOCK_SUGGESTED_PEOPLE.map(renderSuggestedPerson)}
+            {suggestedPeople.length > 0 ? (
+              suggestedPeople.map(renderSuggestedPerson)
+            ) : (
+              <View style={{ paddingHorizontal: wp(4), paddingVertical: hp(2) }}>
+                <Text style={{ fontSize: hp(1.4), color: theme.colors.textSecondary, textAlign: 'center' }}>
+                  No suggestions available
+                </Text>
+              </View>
+            )}
           </ScrollView>
         </View>
 
         {/* Message Threads List */}
-        <FlatList
-          data={filteredMessages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessageThread}
-          contentContainerStyle={styles.messagesList}
-          showsVerticalScrollIndicator={false}
-        />
+        {conversationsLoading ? (
+          <View style={styles.emptyState}>
+            <ActivityIndicator size="large" color={theme.colors.bondedPurple} />
+            <Text style={[styles.emptyStateText, { marginTop: hp(2) }]}>Loading conversations...</Text>
+          </View>
+        ) : filteredMessages.length > 0 ? (
+          <FlatList
+            data={filteredMessages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessageThread}
+            contentContainerStyle={styles.messagesList}
+            showsVerticalScrollIndicator={false}
+          />
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="chatbubbles-outline" size={hp(6)} color={theme.colors.textSecondary} style={{ opacity: 0.5, marginBottom: hp(2) }} />
+            <Text style={styles.emptyStateTitle}>No messages yet</Text>
+            <Text style={styles.emptyStateText}>Start a conversation by tapping the compose button or selecting someone from suggestions</Text>
+          </View>
+        )}
 
         <BottomNav />
 
@@ -348,11 +383,11 @@ export default function Messages() {
         {/* Friend Selection Modal */}
         <Modal
           visible={isFriendSelectionVisible}
-          transparent
+          transparent={false}
           animationType="slide"
           onRequestClose={() => setIsFriendSelectionVisible(false)}
         >
-          <SafeAreaView style={styles.modalSafeArea} edges={['top']}>
+          <SafeAreaView style={styles.modalSafeArea} edges={['top', 'left', 'right']}>
             <View style={styles.selectionContainer}>
               <View style={styles.selectionHeader}>
                 <TouchableOpacity
@@ -380,31 +415,44 @@ export default function Messages() {
                 />
               </View>
 
-              <FlatList
-                data={MOCK_FRIENDS}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
+              {friends.length > 0 ? (
+                <FlatList
+                  data={friends}
+                  keyExtractor={(item) => item.id}
+                  renderItem={({ item }) => (
                   <TouchableOpacity
                     style={styles.friendItem}
                     activeOpacity={0.7}
                     onPress={() => {
-                      router.push({
-                        pathname: '/chat',
-                        params: { userId: item.id, userName: item.name },
-                      })
+                      handleStartChat(item.id, item.name)
                       setIsFriendSelectionVisible(false)
                     }}
                   >
-                    <Image source={{ uri: item.photoUrl }} style={styles.friendAvatar} />
+                    {item.photoUrl ? (
+                      <Image source={{ uri: item.photoUrl }} style={styles.friendAvatar} />
+                    ) : (
+                      <View style={[styles.friendAvatar, { backgroundColor: theme.colors.bondedPurple, alignItems: 'center', justifyContent: 'center' }]}>
+                        <Text style={{ color: theme.colors.white, fontSize: hp(2), fontWeight: '600' }}>
+                          {(item.name || 'U').charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.friendInfo}>
                       <Text style={styles.friendName}>{item.name}</Text>
-                      <Text style={styles.friendMajor}>{item.major}</Text>
+                      <Text style={styles.friendMajor}>{item.major || 'Student'}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={hp(2)} color={theme.colors.softBlack} style={{ opacity: 0.5 }} />
                   </TouchableOpacity>
-                )}
-                contentContainerStyle={styles.friendsList}
-              />
+                  )}
+                  contentContainerStyle={styles.friendsList}
+                />
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="people-outline" size={hp(5)} color={theme.colors.textSecondary} style={{ opacity: 0.5, marginBottom: hp(2) }} />
+                  <Text style={styles.emptyStateTitle}>No friends yet</Text>
+                  <Text style={styles.emptyStateText}>Connect with people to start messaging</Text>
+                </View>
+              )}
             </View>
           </SafeAreaView>
         </Modal>
@@ -434,9 +482,10 @@ export default function Messages() {
                 Create a group chat with all members of a private forum
               </Text>
 
-              <FlatList
-                data={MOCK_PRIVATE_FORUMS}
-                keyExtractor={(item) => item.id}
+              {privateForums.length > 0 ? (
+                <FlatList
+                  data={privateForums}
+                  keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={styles.forumItem}
@@ -462,9 +511,16 @@ export default function Messages() {
                     </View>
                     <Ionicons name="chevron-forward" size={hp(2)} color={theme.colors.softBlack} style={{ opacity: 0.5 }} />
                   </TouchableOpacity>
-                )}
-                contentContainerStyle={styles.forumsList}
-              />
+                  )}
+                  contentContainerStyle={styles.forumsList}
+                />
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="lock-closed-outline" size={hp(5)} color={theme.colors.textSecondary} style={{ opacity: 0.5, marginBottom: hp(2) }} />
+                  <Text style={styles.emptyStateTitle}>No private forums</Text>
+                  <Text style={styles.emptyStateText}>Join or create private forums to start group chats</Text>
+                </View>
+              )}
             </View>
           </SafeAreaView>
         </Modal>
@@ -659,9 +715,10 @@ const createStyles = (theme) => StyleSheet.create({
     paddingHorizontal: wp(4),
   },
   suggestedTitle: {
-    fontSize: hp(1.6),
-    fontWeight: '500',
-    color: theme.colors.textPrimary,
+    fontSize: theme.typography.sizes.base,
+    fontWeight: theme.typography.weights.medium,
+    color: theme.colors.textSecondary,
+    opacity: theme.ui.metaOpacity,
     letterSpacing: -0.1,
   },
   suggestedList: {
@@ -879,7 +936,7 @@ const createStyles = (theme) => StyleSheet.create({
   selectionContainer: {
     flex: 1,
     paddingHorizontal: wp(4),
-    paddingTop: hp(4),
+    paddingTop: hp(2),
   },
   selectionHeader: {
     flexDirection: 'row',
@@ -1095,6 +1152,28 @@ const createStyles = (theme) => StyleSheet.create({
     fontSize: hp(1.3),
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp(10),
+    paddingHorizontal: wp(8),
+  },
+  emptyStateTitle: {
+    fontSize: hp(2),
+    fontWeight: '600',
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.heading,
+    marginBottom: hp(1),
+    textAlign: 'center',
+  },
+  emptyStateText: {
+    fontSize: hp(1.5),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+    textAlign: 'center',
+    lineHeight: hp(2.2),
   },
 })
 

@@ -2,8 +2,8 @@ import { useMutation } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 
 /**
- * Hook to send OTP to user's email
- * Uses Supabase Auth's signInWithOtp method
+ * Hook to send 6-digit email OTP
+ * For testing in Expo Go (magic links don't work in Expo Go)
  */
 export const useSendOTP = () => {
   return useMutation({
@@ -12,26 +12,25 @@ export const useSendOTP = () => {
         throw new Error('Email is required')
       }
 
-      try {
-        const { data, error } = await supabase.auth.signInWithOtp({
-          email: email.toLowerCase().trim(),
-          options: {
-            // Optional: customize email template
-            emailRedirectTo: undefined, // We're using OTP, not magic link
-          },
-        })
+      const cleanEmail = email.toLowerCase().trim()
 
-        if (error) {
-          throw error
-        }
+      console.log('📧 Sending OTP to:', cleanEmail)
 
-        return data
-      } catch (error) {
-        console.error('Error sending OTP:', error)
+      const { data, error } = await supabase.auth.signInWithOtp({
+        email: cleanEmail,
+        options: {
+          shouldCreateUser: true,
+        },
+      })
+
+      if (error) {
+        console.error('❌ Error sending OTP:', error)
         throw error
       }
+
+      console.log('✅ OTP sent successfully to:', cleanEmail)
+      return data
     },
-    retry: 1, // Retry once on failure
+    retry: 1,
   })
 }
-

@@ -1,9 +1,9 @@
-import { View, StyleSheet, Animated, Text, ImageBackground, Easing } from 'react-native'
-import React, { useEffect, useRef, useState } from 'react'
+import { View, StyleSheet, Animated, Text, ImageBackground, Easing, useColorScheme } from 'react-native'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ScreenWrapper from '../components/ScreenWrapper'
 import { StatusBar } from 'expo-status-bar'
 import { hp, wp } from '../helpers/common'
-import { useAppTheme } from './theme'
+import { useAppTheme, useThemeMode } from './theme'
 import Button from '../components/Button'
 import AnimatedLogo from '../components/AnimatedLogo'
 import { useRouter } from 'expo-router'
@@ -24,6 +24,17 @@ const welcome = () => {
   const phraseAnim = useRef(new Animated.Value(1)).current
   const [phraseIndex, setPhraseIndex] = useState(0)
   const router = useRouter()
+  const { setMode } = useThemeMode()
+  const systemScheme = useColorScheme() || 'light'
+
+  // Force light mode while welcome screen is displayed, then restore system preference
+  // Use useLayoutEffect to ensure theme changes BEFORE render
+  useLayoutEffect(() => {
+    setMode('light')
+    return () => {
+      setMode(systemScheme)
+    }
+  }, [setMode, systemScheme])
 
   useEffect(() => {
     const hoverAnimation = Animated.loop(

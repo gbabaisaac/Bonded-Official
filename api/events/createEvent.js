@@ -19,6 +19,7 @@ export async function createEvent(input) {
     location_address,
     visibility = 'public',
     org_id,
+    // Note: university_id removed - uri_events table doesn't have this column
     requires_approval = false,
     hide_guest_list = false,
     allow_sharing = true,
@@ -43,7 +44,7 @@ export async function createEvent(input) {
 
   // Start transaction by creating event
   const { data: event, error: eventError } = await supabase
-    .from('events')
+    .from('uri_events')
     .insert({
       organizer_id,
       organizer_type,
@@ -56,6 +57,7 @@ export async function createEvent(input) {
       location_address,
       visibility,
       org_id: org_id || null,
+      // Note: uri_events table doesn't have university_id column
       requires_approval,
       hide_guest_list,
       allow_sharing,
@@ -86,7 +88,7 @@ export async function createEvent(input) {
 
     if (ticketError) {
       // Rollback: delete the event
-      await supabase.from('events').delete().eq('id', event.id)
+      await supabase.from('uri_events').delete().eq('id', event.id)
       throw ticketError
     }
   }
@@ -103,7 +105,7 @@ export async function createEvent(input) {
 
   if (hostAttendanceError) {
     // Rollback: delete the event
-    await supabase.from('events').delete().eq('id', event.id)
+    await supabase.from('uri_events').delete().eq('id', event.id)
     throw hostAttendanceError
   }
 

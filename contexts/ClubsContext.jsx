@@ -1,9 +1,12 @@
-import React, { createContext, useState, useContext } from 'react'
+import React, { createContext, useContext, useState } from 'react'
 
 const ClubsContext = createContext()
 
-// Mock clubs data
+// TODO: Remove generateMockClubs - clubs should come from Supabase
+// Mock data removed - using real Supabase data
 const generateMockClubs = () => {
+  // Return empty - clubs should come from Supabase
+  return {}
   const clubs = {}
   
   const createClub = (id, name, description, category, members, leadership, isPublic, requiresApproval, coverImage = null, admins = []) => {
@@ -29,7 +32,7 @@ const generateMockClubs = () => {
 
   createClub(
     'club-1',
-    'Computer Science Club',
+    'CS Club',
     'A community for CS students to collaborate, learn, and build projects together.',
     'academic',
     ['user-123', 'user-1', 'user-2', 'user-3', 'user-4'],
@@ -283,6 +286,32 @@ export function ClubsProvider({ children }) {
     return Object.values(clubs).filter((club) => isUserMember(club.id, userId))
   }
 
+  const removeMember = (clubId, userId) => {
+    // Only admins can remove members
+    const club = clubs[clubId]
+    if (!club || !isUserAdmin(clubId)) {
+      return false
+    }
+    
+    // Don't allow removing admins
+    if (club.admins && club.admins.includes(userId)) {
+      return false
+    }
+    
+    setUserMemberships((prev) => ({
+      ...prev,
+      [clubId]: (prev[clubId] || []).filter((id) => id !== userId),
+    }))
+    setClubs((prev) => ({
+      ...prev,
+      [clubId]: {
+        ...prev[clubId],
+        members: (prev[clubId].members || []).filter((id) => id !== userId),
+      },
+    }))
+    return true
+  }
+
   const getAdminClubs = (userId = currentUserId) => {
     return Object.values(clubs).filter((club) => isUserAdmin(club.id, userId))
   }
@@ -334,6 +363,10 @@ export function ClubsProvider({ children }) {
       requiresApproval: clubData.requiresApproval !== undefined ? clubData.requiresApproval : false,
       coverImage: clubData.coverImage || null,
       avatar: clubData.avatar || null,
+      meetingTimes: clubData.meetingTimes || null,
+      meetingLocation: clubData.meetingLocation || null,
+      locationCoords: clubData.locationCoords || null,
+      isMeetingPublic: clubData.isMeetingPublic !== undefined ? clubData.isMeetingPublic : true,
       members: [currentUserId], // Creator is automatically a member
       leadership: [{ userId: currentUserId, role: 'Founder', name: 'You' }],
       admins: [currentUserId], // Creator is automatically an admin
@@ -406,6 +439,7 @@ export function ClubsProvider({ children }) {
         getAdminClubs,
         isUserAdmin,
         addAdmin,
+        removeMember,
         removeAdmin,
         addClubPost,
         addClubEvent,

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native'
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
@@ -12,15 +12,73 @@ import SectionHeader from '../components/SectionHeader'
 import { useAppTheme, useThemeMode } from './theme'
 import ThemedView from './components/ThemedView'
 import ThemedText from './components/ThemedText'
+import { useAuthStore } from '../stores/authStore'
+import { supabase } from '../lib/supabase'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 export default function Settings() {
   const router = useRouter()
   const theme = useAppTheme()
   const { mode, setMode } = useThemeMode()
+  const { logout } = useAuthStore()
   const isDarkMode = mode === 'dark'
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [emailNotifications, setEmailNotifications] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const styles = createStyles(theme)
+
+  const handleSignOut = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsSigningOut(true)
+              console.log('🚪 Signing out...')
+              
+              // Step 1: Sign out from Supabase (clears JWT from SecureStore)
+              // This removes the access_token and refresh_token from secure storage
+              const { error: signOutError } = await supabase.auth.signOut()
+              
+              if (signOutError) {
+                console.error('❌ Error signing out from Supabase:', signOutError)
+                Alert.alert('Error', 'Failed to sign out. Please try again.')
+                setIsSigningOut(false)
+                return
+              }
+              
+              console.log('✅ Supabase session cleared (JWT removed from SecureStore)')
+              
+              // Step 2: Clear auth store (clears Zustand state and AsyncStorage)
+              // logout() now clears both Zustand state and AsyncStorage
+              await logout()
+              
+              console.log('✅ Signed out successfully - all tokens and auth data cleared')
+              console.log('   ✓ JWT cleared from SecureStore (via supabase.auth.signOut)')
+              console.log('   ✓ Auth state cleared from Zustand')
+              console.log('   ✓ AsyncStorage cleared')
+              
+              // Step 4: Navigate to login screen
+              router.replace('/login')
+            } catch (error) {
+              console.error('❌ Error during sign out:', error)
+              Alert.alert('Error', 'An error occurred while signing out. Please try again.')
+              setIsSigningOut(false)
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    )
+  }
 
   const SettingItem = ({ icon, title, subtitle, onPress, rightComponent, showArrow = true, titleStyle }) => (
     <TouchableOpacity
@@ -166,11 +224,10 @@ export default function Settings() {
           <AppCard style={styles.sectionCard}>
               <SettingItem
                 icon="log-out-outline"
-                title="Sign Out"
+                title={isSigningOut ? 'Signing Out...' : 'Sign Out'}
                 titleStyle={{ color: '#ED4956' }}
-                onPress={() => {
-                  // TODO: Handle sign out
-                }}
+                onPress={handleSignOut}
+                showArrow={!isSigningOut}
               />
           </AppCard>
         </ScrollView>
@@ -192,18 +249,18 @@ const createStyles = (theme) => StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: wp(4),
+    paddingHorizontal: theme.spacing.lg,
     paddingBottom: hp(10),
   },
   sectionCard: {
-    marginBottom: hp(2),
+    marginBottom: theme.spacing.lg,
   },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: hp(1.8),
-    paddingHorizontal: wp(4),
+    paddingVertical: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   settingLeft: {
@@ -223,15 +280,15 @@ const createStyles = (theme) => StyleSheet.create({
     flex: 1,
   },
   settingTitle: {
-    fontSize: hp(1.9),
-    fontWeight: '600',
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: theme.typography.weights.semibold,
     fontFamily: theme.typography.fontFamily.heading,
-    marginBottom: hp(0.2),
+    marginBottom: theme.spacing.xs,
   },
   settingSubtitle: {
-    fontSize: hp(1.5),
+    fontSize: theme.typography.sizes.base,
     fontFamily: theme.typography.fontFamily.body,
-    opacity: 0.7,
+    opacity: theme.ui.metaOpacity,
   },
 })
 

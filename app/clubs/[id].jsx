@@ -1,27 +1,27 @@
-import React, { useState } from 'react'
+import { Ionicons } from '@expo/vector-icons'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import React, { useEffect, useState } from 'react'
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Image,
-  FlatList,
   Alert,
+    FlatList,
+    Image,
   Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
-import { useRouter, useLocalSearchParams } from 'expo-router'
-import { hp, wp } from '../../helpers/common'
-import { useAppTheme } from '../theme'
 import AppTopBar from '../../components/AppTopBar'
 import BottomNav from '../../components/BottomNav'
+import EventPost from '../../components/Events/EventPost'
+import InviteModal from '../../components/InviteModal'
+import ShareModal from '../../components/ShareModal'
 import { useClubsContext } from '../../contexts/ClubsContext'
 import { useEventsContext } from '../../contexts/EventsContext'
-import EventPost from '../../components/Events/EventPost'
-import ShareModal from '../../components/ShareModal'
-import InviteModal from '../../components/InviteModal'
+import { hp, wp } from '../../helpers/common'
+import { useAppTheme } from '../theme'
 
 export default function ClubDetail() {
   const theme = useAppTheme()
@@ -38,9 +38,12 @@ export default function ClubDetail() {
     removeInterest,
     leaveClub,
     isUserAdmin,
+    removeMember,
+    currentUserId,
   } = useClubsContext()
   const { getAllEvents } = useEventsContext()
   const [activeTab, setActiveTab] = useState('posts') // Default to posts for Instagram-like view
+  const [viewMode, setViewMode] = useState('member') // LinkedIn-style view switcher ('member' | 'admin')
   const [showShareModal, setShowShareModal] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
 
@@ -50,6 +53,13 @@ export default function ClubDetail() {
     club?.events?.includes(event.id)
   )
   const isAdmin = club ? isUserAdmin(club.id) : false
+
+  // Auto-switch to admin view if user is admin
+  useEffect(() => {
+    if (isAdmin && viewMode === 'member') {
+      setViewMode('admin')
+    }
+  }, [isAdmin])
 
   if (!club) {
     return (
@@ -104,12 +114,42 @@ export default function ClubDetail() {
       'user-2': 'Sarah Williams',
       'user-3': 'Mike Chen',
       'user-4': 'Emily Davis',
+      'user-123': 'You',
     }
     const memberAvatars = {
       'user-1': 'https://randomuser.me/api/portraits/men/20.jpg',
       'user-2': 'https://randomuser.me/api/portraits/women/21.jpg',
       'user-3': 'https://randomuser.me/api/portraits/men/22.jpg',
       'user-4': 'https://randomuser.me/api/portraits/women/23.jpg',
+      'user-123': 'https://randomuser.me/api/portraits/men/1.jpg',
+    }
+
+    const isCurrentUser = userId === currentUserId
+    const canRemove = isAdmin && viewMode === 'admin' && !isCurrentUser && !club.admins?.includes(userId)
+
+    const handleRemoveMember = () => {
+      Alert.alert(
+        'Remove Member',
+        `Are you sure you want to remove ${memberNames[userId] || 'this member'} from ${club.name}?`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => {
+              const success = removeMember(club.id, userId)
+              if (success) {
+                Alert.alert('Success', 'Member removed successfully')
+              } else {
+                Alert.alert('Error', 'Failed to remove member')
+              }
+            },
+          },
+        ]
+      )
     }
 
     return (
@@ -118,9 +158,18 @@ export default function ClubDetail() {
           source={{ uri: memberAvatars[userId] || 'https://randomuser.me/api/portraits/men/1.jpg' }}
           style={styles.memberAvatar}
         />
-        <Text style={styles.memberName}>
+        <Text style={styles.memberName} numberOfLines={1}>
           {memberNames[userId] || 'Member'}
         </Text>
+        {canRemove && (
+          <TouchableOpacity
+            style={styles.removeMemberButton}
+            onPress={handleRemoveMember}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close-circle" size={hp(1.8)} color={theme.colors.error} />
+          </TouchableOpacity>
+        )}
       </View>
     )
   }
@@ -233,6 +282,41 @@ export default function ClubDetail() {
           {/* Description */}
           <Text style={styles.description}>{club.description}</Text>
 
+          {/* Meeting Information */}
+          {(club.meetingTimes || club.meetingLocation) && (
+            <View style={styles.meetingInfoSection}>
+              <Text style={styles.sectionTitle}>Meeting Information</Text>
+              {club.meetingTimes && club.meetingTimes.length > 0 && (
+                <View style={styles.meetingTimesContainer}>
+                  {club.meetingTimes.map((meeting, index) => (
+                    <View key={index} style={styles.meetingTimeCard}>
+                      <View style={styles.meetingTimeHeader}>
+                        <Ionicons name="time-outline" size={hp(2)} color={theme.colors.accent} />
+                        <Text style={styles.meetingDay}>{meeting.day}</Text>
+                        {!club.isMeetingPublic && (
+                          <Ionicons name="lock-closed-outline" size={hp(1.5)} color={theme.colors.textSecondary} style={{ marginLeft: theme.spacing.xs }} />
+                        )}
+                      </View>
+                      <Text style={styles.meetingTime}>
+                        {new Date(meeting.time).toLocaleTimeString('en-US', { 
+                          hour: 'numeric', 
+                          minute: '2-digit',
+                          hour12: true 
+                        })}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              {club.meetingLocation && (
+                <View style={styles.meetingLocationCard}>
+                  <Ionicons name="location-outline" size={hp(2)} color={theme.colors.accent} />
+                  <Text style={styles.meetingLocationText}>{club.meetingLocation}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {/* Stats Row - Instagram style */}
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
@@ -249,14 +333,55 @@ export default function ClubDetail() {
             </View>
           </View>
 
+          {/* View Switcher - LinkedIn style (Admin only) */}
+          {isAdmin && (
+            <View style={styles.viewSwitcherContainer}>
+              <View style={styles.viewSwitcher}>
+                <TouchableOpacity
+                  style={[
+                    styles.viewSwitcherButton,
+                    viewMode === 'member' && styles.viewSwitcherButtonActive,
+                  ]}
+                  onPress={() => setViewMode('member')}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.viewSwitcherText,
+                      viewMode === 'member' && styles.viewSwitcherTextActive,
+                    ]}
+                  >
+                    Member view
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.viewSwitcherButton,
+                    viewMode === 'admin' && styles.viewSwitcherButtonActive,
+                  ]}
+                  onPress={() => setViewMode('admin')}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.viewSwitcherText,
+                      viewMode === 'admin' && styles.viewSwitcherTextActive,
+                    ]}
+                  >
+                    Admin view
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           {/* Action Buttons Row */}
           {isAdmin ? (
             <View style={styles.adminActionsRow}>
               <TouchableOpacity
                 style={styles.editButton}
                 onPress={() => {
-                  // TODO: Navigate to edit page
-                  Alert.alert('Edit Club', 'Edit functionality coming soon')
+                  router.push(`/clubs/create?id=${club.id}&edit=true`)
                 }}
                 activeOpacity={0.8}
               >
@@ -322,6 +447,21 @@ export default function ClubDetail() {
             </View>
           )}
 
+          {/* Forum Button - Navigate to organization's forum */}
+          {isMember && (
+            <TouchableOpacity
+              style={styles.forumButton}
+              onPress={() => {
+                // Navigate to forum with the club's forumId
+                router.push(`/forum?forumId=${club.forumId}`)
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="chatbubbles" size={hp(2)} color={theme.colors.white} />
+              <Text style={styles.forumButtonText}>View Forum</Text>
+            </TouchableOpacity>
+          )}
+
           {/* Create Post Button - Admin only */}
           {isAdmin && (
             <TouchableOpacity
@@ -339,8 +479,8 @@ export default function ClubDetail() {
 
           {/* Tabs - Instagram style */}
           <View style={styles.tabs}>
-            {isAdmin 
-              ? ['posts', 'events', 'members', 'requests'].map((tab) => (
+            {isAdmin && viewMode === 'admin'
+              ? ['posts', 'events', 'members', 'requests', 'analytics'].map((tab) => (
                   <TouchableOpacity
                     key={tab}
                     style={[
@@ -355,7 +495,8 @@ export default function ClubDetail() {
                         tab === 'posts' ? 'grid-outline' :
                         tab === 'events' ? 'calendar-outline' :
                         tab === 'members' ? 'people-outline' :
-                        'person-add-outline'
+                        tab === 'requests' ? 'person-add-outline' :
+                        'stats-chart-outline'
                       }
                       size={hp(2.2)}
                       color={activeTab === tab ? theme.colors.textPrimary : theme.colors.textSecondary}
@@ -513,7 +654,7 @@ export default function ClubDetail() {
             </View>
           )}
 
-          {activeTab === 'requests' && isAdmin && (
+          {activeTab === 'requests' && isAdmin && viewMode === 'admin' && (
             <View style={styles.tabContent}>
               <Text style={styles.sectionTitle}>Join Requests ({club.requests?.length || 0})</Text>
               {club.requests && club.requests.length > 0 ? (
@@ -580,21 +721,68 @@ export default function ClubDetail() {
             </View>
           )}
 
-          {/* Forum Access */}
-          {isMember && (
-            <TouchableOpacity
-              style={styles.forumButton}
-              onPress={() => router.push(`/forum?forumId=${club.forumId}`)}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="chatbubbles"
-                size={hp(2.5)}
-                color={theme.colors.white}
-              />
-              <Text style={styles.forumButtonText}>Open Club Forum</Text>
-            </TouchableOpacity>
+          {activeTab === 'analytics' && isAdmin && viewMode === 'admin' && (
+            <View style={styles.tabContent}>
+              <Text style={styles.sectionTitle}>Analytics</Text>
+              
+              {/* Stats Cards */}
+              <View style={styles.analyticsGrid}>
+                <View style={styles.analyticsCard}>
+                  <Text style={styles.analyticsValue}>{memberCount}</Text>
+                  <Text style={styles.analyticsLabel}>Total Members</Text>
+                  <Text style={styles.analyticsChange}>+12% this month</Text>
+                </View>
+                <View style={styles.analyticsCard}>
+                  <Text style={styles.analyticsValue}>{club.posts?.length || 0}</Text>
+                  <Text style={styles.analyticsLabel}>Total Posts</Text>
+                  <Text style={styles.analyticsChange}>+5 this week</Text>
+                </View>
+                <View style={styles.analyticsCard}>
+                  <Text style={styles.analyticsValue}>{clubEvents.length}</Text>
+                  <Text style={styles.analyticsLabel}>Events</Text>
+                  <Text style={styles.analyticsChange}>3 upcoming</Text>
+                </View>
+                <View style={styles.analyticsCard}>
+                  <Text style={styles.analyticsValue}>89%</Text>
+                  <Text style={styles.analyticsLabel}>Engagement</Text>
+                  <Text style={styles.analyticsChange}>↑ 4% from last month</Text>
+                </View>
+              </View>
+
+              {/* Recent Activity */}
+              <View style={styles.analyticsSection}>
+                <Text style={styles.analyticsSectionTitle}>Recent Activity</Text>
+                <View style={styles.activityItem}>
+                  <View style={styles.activityIcon}>
+                    <Ionicons name="person-add" size={hp(2)} color={theme.colors.success} />
+                  </View>
+                  <View style={styles.activityContent}>
+                    <Text style={styles.activityText}>5 new members joined this week</Text>
+                    <Text style={styles.activityTime}>2 hours ago</Text>
+                  </View>
+                </View>
+                <View style={styles.activityItem}>
+                  <View style={styles.activityIcon}>
+                    <Ionicons name="calendar" size={hp(2)} color={theme.colors.info} />
+                  </View>
+                  <View style={styles.activityContent}>
+                    <Text style={styles.activityText}>New event created: "Hackathon 2025"</Text>
+                    <Text style={styles.activityTime}>1 day ago</Text>
+                  </View>
+                </View>
+                <View style={styles.activityItem}>
+                  <View style={styles.activityIcon}>
+                    <Ionicons name="chatbubble" size={hp(2)} color={theme.colors.accent} />
+                  </View>
+                  <View style={styles.activityContent}>
+                    <Text style={styles.activityText}>3 new posts in the forum</Text>
+                    <Text style={styles.activityTime}>2 days ago</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
           )}
+
         </ScrollView>
 
         {/* Share Modal */}
@@ -955,6 +1143,54 @@ const createStyles = (theme) => StyleSheet.create({
     color: theme.colors.textPrimary,
     marginBottom: hp(1.5),
   },
+  meetingInfoSection: {
+    marginBottom: hp(2),
+  },
+  meetingTimesContainer: {
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+  },
+  meetingTimeCard: {
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  meetingTimeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
+  },
+  meetingDay: {
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.textPrimary,
+  },
+  meetingTime: {
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textSecondary,
+    marginLeft: hp(3),
+  },
+  meetingLocationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  meetingLocationText: {
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textPrimary,
+    flex: 1,
+  },
   leaderItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1040,6 +1276,7 @@ const createStyles = (theme) => StyleSheet.create({
     alignItems: 'center',
     marginBottom: hp(2),
     marginHorizontal: wp(1),
+    position: 'relative',
   },
   memberAvatar: {
     width: hp(6),
@@ -1053,6 +1290,26 @@ const createStyles = (theme) => StyleSheet.create({
     fontWeight: '600',
     color: theme.colors.textPrimary,
     textAlign: 'center',
+    maxWidth: wp(35),
+  },
+  removeMemberButton: {
+    position: 'absolute',
+    top: -hp(0.5),
+    right: -wp(1),
+    backgroundColor: theme.colors.background,
+    borderRadius: theme.radius.full,
+    padding: hp(0.2),
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   emptyState: {
     alignItems: 'center',
@@ -1178,7 +1435,7 @@ const createStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.bondedPurple,
+    backgroundColor: theme.colors.accent,
     paddingVertical: hp(1.8),
     marginHorizontal: wp(4),
     marginTop: hp(2),
@@ -1215,6 +1472,128 @@ const createStyles = (theme) => StyleSheet.create({
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
     color: theme.colors.white,
+  },
+  viewSwitcherContainer: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    backgroundColor: theme.colors.background,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.border,
+  },
+  viewSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.xs,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  viewSwitcherButton: {
+    flex: 1,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewSwitcherButtonActive: {
+    backgroundColor: theme.colors.accent,
+    ...Platform.select({
+      ios: {
+        shadowColor: theme.colors.accent,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  viewSwitcherText: {
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: theme.typography.weights.medium,
+    color: theme.colors.textSecondary,
+  },
+  viewSwitcherTextActive: {
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.white,
+  },
+  analyticsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
+  },
+  analyticsCard: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: theme.colors.background,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  analyticsValue: {
+    fontSize: theme.typography.sizes.xxl,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.bold,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+  },
+  analyticsLabel: {
+    fontSize: theme.typography.sizes.sm,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
+  },
+  analyticsChange: {
+    fontSize: theme.typography.sizes.xs,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.success,
+    fontWeight: theme.typography.weights.medium,
+  },
+  analyticsSection: {
+    marginTop: theme.spacing.lg,
+  },
+  analyticsSectionTitle: {
+    fontSize: theme.typography.sizes.lg,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.bold,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.md,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.border,
+    gap: theme.spacing.md,
+  },
+  activityIcon: {
+    width: hp(4),
+    height: hp(4),
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.backgroundSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityContent: {
+    flex: 1,
+  },
+  activityText: {
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+  },
+  activityTime: {
+    fontSize: theme.typography.sizes.sm,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textSecondary,
+    opacity: theme.ui.metaOpacity,
   },
 })
 

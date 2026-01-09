@@ -28,12 +28,12 @@ export default function PostTags({ tags = [], maxDisplay = 2 }) {
             style={[
               styles.tag,
               { 
-                backgroundColor: tagColor.bg,
-                borderColor: tagColor.border + '40', // More transparent border
+                backgroundColor: tagColor.bg + 'E6', // Softer background (90% opacity)
+                borderColor: tagColor.border + '30', // More transparent border
               }
             ]}
           >
-            <Text style={[styles.tagText, { color: tagColor.text + 'CC' }]}>
+            <Text style={[styles.tagText, { color: tagColor.text }]}>
               {tag}
             </Text>
           </View>

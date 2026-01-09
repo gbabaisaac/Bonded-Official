@@ -88,9 +88,9 @@ const createStyles = (theme) => StyleSheet.create({
     justifyContent: 'center',
   },
   chipInactive: {
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)',
   },
   gradient: {
     paddingHorizontal: wp(3),
@@ -103,7 +103,7 @@ const createStyles = (theme) => StyleSheet.create({
   label: {
     fontSize: hp(1.4),
     fontWeight: '500',
-    color: theme.colors.textPrimary,
+    color: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.6)',
   },
   labelActive: {
     color: theme.colors.white,

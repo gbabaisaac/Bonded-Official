@@ -3,22 +3,52 @@
  */
 
 /**
- * Generate a static map image URL using OpenStreetMap (free, no API key needed)
- * For production, consider using Google Maps Static API or Mapbox
+ * Generate a static map image URL with coordinates
+ * This is more accurate than using address strings
  */
-export const getStaticMapUrl = (locationName, width = 400, height = 200) => {
+export const getStaticMapUrlWithCoords = (lat, lng, width = 400, height = 200, zoom = 15) => {
+  if (!lat || !lng) return null
+  
+  // Try Google Maps Static API first (if API key is available)
+  const googleApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+  if (googleApiKey) {
+    return `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=${width}x${height}&markers=color:0x8B5CF6%7C${lat},${lng}&key=${googleApiKey}`
+  }
+  
+  // Fall back to Mapbox if Mapbox key is available
+  const mapboxToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN
+  if (mapboxToken) {
+    return `https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/pin-s+ff0000(${lng},${lat})/${lng},${lat},${zoom}/${width}x${height}?access_token=${mapboxToken}`
+  }
+  
+  // Last resort: Use placeholder
+  return `https://via.placeholder.com/${width}x${height}/E5E5E5/737373?text=Map+Preview`
+}
+
+/**
+ * Generate a static map image URL from location name
+ * Geocodes the location first, then generates map with coordinates
+ */
+export const getStaticMapUrl = async (locationName, width = 400, height = 200) => {
   if (!locationName) return null
   
-  // For now, use a placeholder or OpenStreetMap static image
-  // In production, use Google Maps Static API or Mapbox Static Images API
+  // First, try to geocode the location to get coordinates
+  const coords = await geocodeLocation(locationName)
+  
+  if (coords && coords.lat && coords.lng) {
+    // Use coordinates for accurate map display
+    return getStaticMapUrlWithCoords(coords.lat, coords.lng, width, height)
+  }
+  
+  // Fallback: Try using address string directly (less accurate)
   const encodedLocation = encodeURIComponent(locationName)
+  const googleApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+  if (googleApiKey) {
+    return `https://maps.googleapis.com/maps/api/staticmap?center=${encodedLocation}&zoom=15&size=${width}x${height}&markers=color:0x8B5CF6%7C${encodedLocation}&key=${googleApiKey}`
+  }
   
-  // Using OpenStreetMap Nominatim for geocoding and static map
-  // Note: This is a simple implementation. For production, use a proper mapping service
-  return `https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/pin-s+ff0000(${encodedLocation})/${encodedLocation},15/${width}x${height}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXV4NTFiamM2Y2J6Y2Z1c2ZtNnAifQ.rJcFIG214AriISLbB6B5aw`
-  
-  // Alternative: Use a simple placeholder that looks like a map
-  // return `https://via.placeholder.com/${width}x${height}/E5E5E5/737373?text=Map+Preview`
+  // Last resort: Use placeholder
+  return `https://via.placeholder.com/${width}x${height}/E5E5E5/737373?text=Map+Preview`
 }
 
 /**
@@ -40,13 +70,37 @@ export const getGoogleStaticMapUrl = (locationName, width = 400, height = 200, z
 
 /**
  * Get coordinates from location name (geocoding)
- * In production, use a geocoding service like Google Geocoding API
+ * Uses Google Geocoding API if available, otherwise falls back to OpenStreetMap Nominatim
  */
 export const geocodeLocation = async (locationName) => {
   if (!locationName) return null
   
+  const googleApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+  
+  // Try Google Geocoding API first (more accurate)
+  if (googleApiKey) {
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(locationName)}&key=${googleApiKey}`
+      )
+      const data = await response.json()
+      
+      if (data.status === 'OK' && data.results && data.results.length > 0) {
+        const location = data.results[0].geometry.location
+        return {
+          lat: location.lat,
+          lng: location.lng,
+          address: data.results[0].formatted_address,
+        }
+      }
+    } catch (error) {
+      console.log('Google Geocoding error:', error)
+      // Fall through to OpenStreetMap
+    }
+  }
+  
+  // Fallback to OpenStreetMap Nominatim (free, but rate-limited)
   try {
-    // Using OpenStreetMap Nominatim (free, but rate-limited)
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&limit=1`,
       {
@@ -65,7 +119,7 @@ export const geocodeLocation = async (locationName) => {
       }
     }
   } catch (error) {
-    console.log('Geocoding error:', error)
+    console.log('OpenStreetMap Geocoding error:', error)
   }
   
   return null

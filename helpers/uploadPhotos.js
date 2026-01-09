@@ -1,5 +1,5 @@
-import * as FileSystem from 'expo-file-system'
-import { supabase } from '../lib/supabase'
+// Use legacy API for expo-file-system v19+
+import { createSignedUrlForPath, uploadImageToBondedMedia } from './mediaStorage'
 
 /**
  * Upload photos to Supabase Storage
@@ -9,80 +9,83 @@ import { supabase } from '../lib/supabase'
  */
 export const uploadPhotosToSupabase = async (photos, userId) => {
   if (!photos || photos.length === 0) {
+    console.log('📸 No photos to upload')
     return []
   }
 
+  if (!userId) {
+    console.error('❌ User ID is required for photo upload')
+    throw new Error('User ID is required for photo upload')
+  }
+
+  console.log(`📸 Starting upload of ${photos.length} photo(s) for user ${userId}`)
   const uploadedPhotos = []
+  const errors = []
 
   for (let i = 0; i < photos.length; i++) {
     const photo = photos[i]
     
     // Skip if already uploaded
     if (photo.uploadedUrl) {
+      console.log(`✅ Photo ${i + 1} already uploaded, skipping: ${photo.uploadedUrl}`)
       uploadedPhotos.push(photo)
       continue
     }
     
+    if (!photo.localUri) {
+      console.warn(`⚠️ Photo ${i + 1} has no localUri, skipping`)
+      errors.push({ index: i, error: 'No localUri provided' })
+      continue
+    }
+
     try {
-      // Read file as base64
-      const base64 = await FileSystem.readAsStringAsync(photo.localUri, {
-        encoding: FileSystem.EncodingType.Base64,
+      console.log(`📤 Uploading photo ${i + 1}/${photos.length}...`)
+
+      const mediaType = photo.isYearbookPhoto ? 'profile_avatar' : 'profile_photo'
+
+      // Note: Run database/enable-profile-media.sql to set up media_type enum and RLS policies
+      const uploadResult = await uploadImageToBondedMedia({
+        fileUri: photo.localUri,
+        mediaType,
+        ownerType: 'user',
+        ownerId: userId,
+        userId,
+        upsert: mediaType === 'profile_avatar',
       })
 
-      // Create file path
-      const timestamp = Date.now()
-      const filePath = `${userId}/photos/${timestamp}_${i}.jpg`
+      const signedUrl = await createSignedUrlForPath(uploadResult.path)
 
-      // Convert base64 to array buffer for React Native
-      // Supabase Storage accepts base64 strings directly
-      const { data, error } = await supabase.storage
-        .from('profiles')
-        .upload(filePath, decodeBase64(base64), {
-          contentType: 'image/jpeg',
-          upsert: false,
-        })
-
-      if (error) {
-        console.error(`Error uploading photo ${i}:`, error)
-        // Continue with other photos even if one fails
-        continue
+      const uploadedPhoto = {
+        ...photo,
+        uploadedUrl: signedUrl,
+        storagePath: uploadResult.path,
+        mediaId: uploadResult.media?.id || null,
       }
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('profiles')
-        .getPublicUrl(filePath)
-
-      uploadedPhotos.push({
-        ...photo,
-        uploadedUrl: urlData.publicUrl,
-        storagePath: filePath,
-      })
+      uploadedPhotos.push(uploadedPhoto)
+      console.log(`🔗 Signed URL for photo ${i + 1}: ${signedUrl}`)
     } catch (error) {
-      console.error(`Error processing photo ${i}:`, error)
+      console.error(`❌ Error processing photo ${i + 1}:`, error)
+      errors.push({ 
+        index: i, 
+        error: error.message || 'Unknown error',
+        stack: error.stack 
+      })
       // Continue with other photos
     }
   }
 
+  // Log summary
+  const successCount = uploadedPhotos.filter(p => p.uploadedUrl).length
+  console.log(`📊 Upload summary: ${successCount}/${photos.length} photos uploaded successfully`)
+  
+  if (errors.length > 0) {
+    console.warn(`⚠️ ${errors.length} photo(s) failed to upload:`, errors)
+  }
+
+  if (uploadedPhotos.length === 0 && photos.length > 0) {
+    throw new Error(`Failed to upload any photos. ${errors.length} error(s) occurred.`)
+  }
+
   return uploadedPhotos
 }
-
-// Helper to convert base64 to Uint8Array for React Native
-function decodeBase64(base64) {
-  // For React Native, we can use the base64 string directly
-  // But Supabase might need it as a blob/array buffer
-  // Try using the base64 string first, if that doesn't work, convert
-  try {
-    // React Native compatible base64 to Uint8Array
-    const binaryString = atob(base64)
-    const bytes = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i)
-    }
-    return bytes
-  } catch (e) {
-    // Fallback: return base64 string (Supabase might accept this)
-    return base64
-  }
-}
-

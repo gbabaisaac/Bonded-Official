@@ -1,5 +1,5 @@
 import React from 'react'
-import { TouchableOpacity, View, Text, StyleSheet, Image, Platform } from 'react-native'
+import { TouchableOpacity, View, Text, StyleSheet, Image, Platform, Animated } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
 import { hp, wp } from '../../helpers/common'
@@ -11,11 +11,13 @@ export default function StoryCircle({ story, onPress, isOwn = false }) {
   const hasUnviewed = story.hasUnviewed
 
   return (
-    <TouchableOpacity style={styles.container} activeOpacity={0.8} onPress={onPress}>
+    <TouchableOpacity style={styles.container} activeOpacity={0.75} onPress={onPress}>
       {hasUnviewed ? (
-        // Gradient border for unviewed stories
+        // Gradient border for unviewed stories - neutral gradient
         <LinearGradient
-          colors={['#FF6B9D', '#C239B3', '#A45CFF']}
+          colors={theme.mode === 'dark' 
+            ? ['#4A5568', '#2D3748', '#1A202C']
+            : ['#CBD5E0', '#A0AEC0', '#718096']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.gradientBorder}
@@ -67,20 +69,20 @@ const createStyles = (theme) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    marginRight: wp(4),
+    marginRight: theme.spacing.xs,
   },
   gradientBorder: {
-    width: hp(8),
-    height: hp(8),
-    borderRadius: hp(4),
-    padding: 4,
-    marginBottom: hp(1),
+    width: hp(7),
+    height: hp(7),
+    borderRadius: hp(3.5),
+    padding: 3,
+    marginBottom: hp(0.6),
     ...Platform.select({
       ios: {
-        shadowColor: '#A45CFF',
+        shadowColor: theme.mode === 'dark' ? '#000' : '#718096',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.3,
-        shadowRadius: 5,
+        shadowRadius: 6,
       },
       android: {
         elevation: 4,
@@ -89,13 +91,24 @@ const createStyles = (theme) => StyleSheet.create({
   },
   viewedBorder: {
     backgroundColor: 'transparent',
-    borderWidth: 4,
-    borderColor: '#C0C0C0',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.18)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   innerCircle: {
     width: '100%',
     height: '100%',
-    borderRadius: hp(4),
+    borderRadius: hp(3.5),
     backgroundColor: theme.colors.background,
     overflow: 'hidden',
   },
@@ -119,15 +132,15 @@ const createStyles = (theme) => StyleSheet.create({
   },
   ownBadge: {
     position: 'absolute',
-    top: hp(6),
-    right: wp(-0.5),
-    width: hp(2.4),
-    height: hp(2.4),
-    borderRadius: hp(1.2),
+    top: hp(5.2),
+    right: wp(-1),
+    width: hp(2.2),
+    height: hp(2.2),
+    borderRadius: hp(1.1),
     backgroundColor: theme.colors.bondedPurple,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: theme.colors.white,
     ...Platform.select({
       ios: {
@@ -142,11 +155,11 @@ const createStyles = (theme) => StyleSheet.create({
     }),
   },
   label: {
-    fontSize: hp(1.5),
+    fontSize: hp(1.4),
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
     textAlign: 'center',
-    maxWidth: wp(22),
+    maxWidth: wp(18),
   },
 })

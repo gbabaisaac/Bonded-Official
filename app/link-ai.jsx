@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import AppHeader from '../components/AppHeader'
+import { isFeatureEnabled } from '../utils/featureGates'
 import { useAppTheme } from './theme'
 import { hp, wp } from '../helpers/common'
 
@@ -187,6 +188,13 @@ export default function LinkAI() {
   const [isTyping, setIsTyping] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(true)
   const flatListRef = useRef(null)
+
+  // Gate: Redirect if feature is disabled
+  useEffect(() => {
+    if (!isFeatureEnabled('LINK_AI')) {
+      router.replace('/yearbook')
+    }
+  }, [router])
 
   useEffect(() => {
     // Scroll to bottom when new messages are added

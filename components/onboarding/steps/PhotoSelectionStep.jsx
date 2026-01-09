@@ -1,16 +1,30 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native'
-import React, { useState } from 'react'
-import * as ImagePicker from 'expo-image-picker'
-import * as ImageManipulator from 'expo-image-manipulator'
 import { Ionicons } from '@expo/vector-icons'
-import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
+import * as ImageManipulator from 'expo-image-manipulator'
+import * as ImagePicker from 'expo-image-picker'
+import React, { useEffect, useState } from 'react'
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { ONBOARDING_THEME } from '../../../constants/onboardingTheme'
 import { hp, wp } from '../../../helpers/common'
+import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
 
 const PhotoSelectionStep = ({ formData, updateFormData, onScroll }) => {
   const styles = createStyles(ONBOARDING_THEME)
-  const [localPhotos, setLocalPhotos] = useState(formData.photos || [])
+  const [yearbookPhoto, setYearbookPhoto] = useState(
+    formData.photos?.find(p => p.isYearbookPhoto) || null
+  )
+  const [galleryPhotos, setGalleryPhotos] = useState(
+    formData.photos?.filter(p => !p.isYearbookPhoto) || []
+  )
   const [isProcessing, setIsProcessing] = useState(false)
+  const [quote, setQuote] = useState(formData.yearbookQuote || '')
+
+  // Helper to update formData with current photos
+  const syncPhotosToFormData = (newYearbookPhoto, newGalleryPhotos) => {
+    const allPhotos = []
+    if (newYearbookPhoto) allPhotos.push(newYearbookPhoto)
+    allPhotos.push(...newGalleryPhotos)
+    updateFormData(ONBOARDING_STEPS.PHOTOS, { photos: allPhotos })
+  }
 
   // Request permissions
   const requestPermissions = async () => {
@@ -62,181 +76,246 @@ const PhotoSelectionStep = ({ formData, updateFormData, onScroll }) => {
     }
   }
 
-  // Handle image selection
-  const handleSelectPhotos = async () => {
+  // Handle yearbook photo selection (single photo)
+  const handleSelectYearbookPhoto = async () => {
     const hasPermission = await requestPermissions()
     if (!hasPermission) return
-
-    // Calculate how many photos can be selected
-    const remainingSlots = 5 - localPhotos.length
-    if (remainingSlots <= 0) {
-      Alert.alert('Maximum Photos', 'You can only upload up to 5 photos.')
-      return
-    }
 
     setIsProcessing(true)
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaType.Image,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: false,
+        allowsEditing: true,
+        aspect: [1, 1], // Square crop
+        quality: 0.8,
+      })
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const asset = result.assets[0]
+        const processedUri = await processImage(asset.uri)
+
+        const photo = {
+          uri: processedUri,
+          localUri: processedUri,
+          isYearbookPhoto: true,
+          order: 0,
+        }
+
+        setYearbookPhoto(photo)
+        syncPhotosToFormData(photo, galleryPhotos)
+      }
+    } catch (error) {
+      console.error('Error selecting yearbook photo:', error)
+      Alert.alert('Error', 'Failed to select photo. Please try again.')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // Handle gallery photos selection (multiple photos)
+  const handleSelectGalleryPhotos = async () => {
+    const hasPermission = await requestPermissions()
+    if (!hasPermission) return
+
+    setIsProcessing(true)
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
-        quality: 1,
-        selectionLimit: remainingSlots,
+        quality: 0.8,
       })
 
       if (!result.canceled && result.assets) {
-        const processedPhotos = []
-        
-        for (const asset of result.assets) {
-          const processedUri = await processImage(asset.uri)
-          processedPhotos.push({
-            uri: processedUri,
-            localUri: processedUri,
-            isYearbookPhoto: localPhotos.length === 0 && processedPhotos.length === 0,
-            order: localPhotos.length + processedPhotos.length,
+        const newPhotos = await Promise.all(
+          result.assets.map(async (asset, index) => {
+            const processedUri = await processImage(asset.uri)
+            return {
+              uri: processedUri,
+              localUri: processedUri,
+              isYearbookPhoto: false,
+              order: galleryPhotos.length + index + 1,
+            }
           })
-        }
+        )
 
-        const newPhotos = [...localPhotos, ...processedPhotos]
-        // Ensure first photo is marked as yearbook photo
-        if (newPhotos.length > 0) {
-          newPhotos[0].isYearbookPhoto = true
-          newPhotos.forEach((photo, index) => {
-            photo.order = index
-          })
-        }
-
-        setLocalPhotos(newPhotos)
-        updateFormData(ONBOARDING_STEPS.PHOTOS, { photos: newPhotos })
+        const updatedGallery = [...galleryPhotos, ...newPhotos]
+        setGalleryPhotos(updatedGallery)
+        syncPhotosToFormData(yearbookPhoto, updatedGallery)
       }
     } catch (error) {
-      console.error('Error selecting photos:', error)
+      console.error('Error selecting gallery photos:', error)
       Alert.alert('Error', 'Failed to select photos. Please try again.')
     } finally {
       setIsProcessing(false)
     }
   }
 
-  // Remove photo
-  const handleRemovePhoto = (index) => {
-    const newPhotos = localPhotos.filter((_, i) => i !== index)
-    // Reorder and ensure first is yearbook photo
-    newPhotos.forEach((photo, i) => {
-      photo.order = i
-      photo.isYearbookPhoto = i === 0
-    })
-
-    setLocalPhotos(newPhotos)
-    updateFormData(ONBOARDING_STEPS.PHOTOS, { photos: newPhotos })
+  // Remove gallery photo
+  const handleRemoveGalleryPhoto = (index) => {
+    const newPhotos = galleryPhotos.filter((_, i) => i !== index)
+    setGalleryPhotos(newPhotos)
+    syncPhotosToFormData(yearbookPhoto, newPhotos)
   }
 
-  // Reorder photos (move to first position)
-  const handleSetAsYearbookPhoto = (index) => {
-    if (index === 0) return // Already first
-
-    const newPhotos = [...localPhotos]
-    const [movedPhoto] = newPhotos.splice(index, 1)
-    newPhotos.unshift(movedPhoto)
-    
-    // Update order and yearbook photo flag
-    newPhotos.forEach((photo, i) => {
-      photo.order = i
-      photo.isYearbookPhoto = i === 0
-    })
-
-    setLocalPhotos(newPhotos)
-    updateFormData(ONBOARDING_STEPS.PHOTOS, { photos: newPhotos })
+  // Handle quote change
+  const handleQuoteChange = (text) => {
+    setQuote(text)
+    updateFormData(ONBOARDING_STEPS.PHOTOS, { yearbookQuote: text })
   }
 
   return (
-    <ScrollView 
+    <ScrollView
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={true}
+      showsVerticalScrollIndicator
       onScroll={onScroll}
       scrollEventThrottle={16}
       nestedScrollEnabled={true}
+      keyboardShouldPersistTaps="handled"
+      bounces={true}
+      scrollIndicatorInsets={{ right: 2, bottom: hp(18) }}
     >
-      <Text style={styles.title}>Select Your Yearbook Photo</Text>
-      <Text style={styles.subtitle}>
-        Upload 1-5 photos. The first photo will be your yearbook photo.
-      </Text>
+      <View style={styles.header}>
+        <View style={styles.pill}>
+          <Text style={styles.pillText}>Step 2 · Photos & Quote</Text>
+        </View>
+        <Text style={styles.title}>Add your yearbook photo</Text>
+        <Text style={styles.subtitle}>
+          This will be your main profile photo and yearbook picture across the app.
+        </Text>
+      </View>
+
+      {/* Yearbook Photo preview */}
+      <View style={styles.previewCard}>
+        <View style={styles.previewImageWrapper}>
+          {yearbookPhoto?.localUri ? (
+            <Image source={{ uri: yearbookPhoto.localUri }} style={styles.previewImage} />
+          ) : (
+            <View style={styles.previewPlaceholder}>
+              <Ionicons name="person-circle-outline" size={hp(8)} color="#A45CFF" />
+              <Text style={styles.previewPlaceholderText}>Your yearbook photo</Text>
+              <Text style={styles.previewPlaceholderSubtext}>A generic avatar will be used if you skip</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.previewActions}>
+          <Text style={styles.previewHint}>
+            {!yearbookPhoto
+              ? 'Choose a clear photo of yourself'
+              : 'Looking good! You can change this anytime in settings.'
+            }
+          </Text>
+          <TouchableOpacity
+            style={styles.addPrimaryButton}
+            onPress={handleSelectYearbookPhoto}
+            disabled={isProcessing}
+            activeOpacity={0.8}
+          >
+            <Ionicons name={!yearbookPhoto ? "camera" : "image"} size={hp(2.4)} color="#FFFFFF" />
+            <Text style={styles.addPrimaryText}>
+              {!yearbookPhoto ? 'Choose yearbook photo' : 'Change yearbook photo'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {isProcessing && (
         <View style={styles.processingContainer}>
           <ActivityIndicator size="large" color="#A45CFF" />
-          <Text style={styles.processingText}>Processing photos...</Text>
+          <Text style={styles.processingText}>Processing photo...</Text>
         </View>
       )}
 
-      {/* Photo Grid */}
-      <View style={styles.photoGrid}>
-        {/* Add Photo Button */}
-        {localPhotos.length < 5 && (
+      {/* Gallery Photos Section */}
+      <View style={styles.gallerySection}>
+        <View style={styles.gallerySectionHeader}>
+          <View style={styles.gallerySectionHeaderLeft}>
+            <Text style={styles.gallerySectionTitle}>Photo Album (Optional)</Text>
+            <Text style={styles.gallerySectionSubtitle}>
+              Add more photos to showcase your personality
+            </Text>
+          </View>
           <TouchableOpacity
-            style={styles.addPhotoButton}
-            onPress={handleSelectPhotos}
+            style={styles.addGalleryButton}
+            onPress={handleSelectGalleryPhotos}
             disabled={isProcessing}
             activeOpacity={0.7}
           >
-            <Ionicons name="add" size={hp(4)} color="#A45CFF" />
-            <Text style={styles.addPhotoText}>Add Photo</Text>
+            <Ionicons name="add-circle" size={hp(3)} color="#A45CFF" />
+            <Text style={styles.addGalleryText}>Add</Text>
           </TouchableOpacity>
-        )}
+        </View>
 
-        {/* Photo Cards */}
-        {localPhotos.map((photo, index) => (
-          <View key={index} style={styles.photoCard}>
-            <Image source={{ uri: photo.localUri }} style={styles.photoImage} />
-            
-            {/* Yearbook Photo Badge */}
-            {photo.isYearbookPhoto && (
-              <View style={styles.yearbookBadge}>
-                <Text style={styles.yearbookBadgeText}>Yearbook Photo</Text>
+        {galleryPhotos.length > 0 ? (
+          <View style={styles.photoGrid}>
+            {galleryPhotos.map((photo, index) => (
+              <View key={index} style={styles.photoCard}>
+                <Image source={{ uri: photo.localUri }} style={styles.photoImage} />
+                <TouchableOpacity
+                  style={styles.removeButton}
+                  onPress={() => handleRemoveGalleryPhoto(index)}
+                >
+                  <Ionicons name="close-circle" size={hp(3)} color="#FFFFFF" />
+                </TouchableOpacity>
               </View>
-            )}
-
-            {/* Remove Button */}
-            <TouchableOpacity
-              style={[
-                styles.removeButton,
-                photo.isYearbookPhoto && styles.removeButtonWithBadge,
-              ]}
-              onPress={() => handleRemovePhoto(index)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close-circle" size={hp(3)} color="#FFFFFF" />
-            </TouchableOpacity>
-
-            {/* Set as Yearbook Photo Button (if not first) */}
-            {!photo.isYearbookPhoto && (
-              <TouchableOpacity
-                style={styles.setYearbookButton}
-                onPress={() => handleSetAsYearbookPhoto(index)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.setYearbookText}>Set as Yearbook Photo</Text>
-              </TouchableOpacity>
-            )}
+            ))}
           </View>
-        ))}
+        ) : (
+          <View style={styles.emptyGalleryState}>
+            <Ionicons name="images-outline" size={hp(4)} color="#8E8E8E" />
+            <Text style={styles.emptyGalleryText}>No photos yet</Text>
+            <Text style={styles.emptyGallerySubtext}>
+              Add multiple photos to create your album
+            </Text>
+          </View>
+        )}
       </View>
 
-      {/* Instructions */}
-      {localPhotos.length === 0 && (
-        <View style={styles.instructionsContainer}>
-          <Ionicons name="information-circle-outline" size={hp(3)} color="#2A2A2A" />
-          <Text style={styles.instructionsText}>
-            Tap "Add Photo" to select photos from your gallery. You can select multiple photos at once.
+      {/* Tips Section */}
+      <View style={styles.tipsContainer}>
+        <View style={styles.tipRow}>
+          <Ionicons name="checkmark-circle" size={hp(2.5)} color="#4CAF50" />
+          <Text style={styles.tipText}>Use a clear, recent photo for your yearbook photo</Text>
+        </View>
+        <View style={styles.tipRow}>
+          <Ionicons name="checkmark-circle" size={hp(2.5)} color="#4CAF50" />
+          <Text style={styles.tipText}>Make sure your face is visible and well-lit</Text>
+        </View>
+        <View style={styles.tipRow}>
+          <Ionicons name="checkmark-circle" size={hp(2.5)} color="#4CAF50" />
+          <Text style={styles.tipText}>Add multiple photos to show different sides of you</Text>
+        </View>
+      </View>
+
+      {/* Yearbook Quote Section */}
+      <View style={styles.quoteContainer}>
+        <Text style={styles.quoteLabel}>Yearbook Quote (Optional)</Text>
+        <Text style={styles.quoteHint}>
+          Add a memorable quote that represents you. This will appear on your profile.
+        </Text>
+        <TextInput
+          style={styles.quoteInput}
+          value={quote}
+          onChangeText={handleQuoteChange}
+          placeholder="Enter your yearbook quote..."
+          placeholderTextColor="#8E8E8E"
+          multiline
+          maxLength={150}
+        />
+        <Text style={styles.characterCount}>{quote.length}/150</Text>
+      </View>
+
+      {/* Skip Option */}
+      {!yearbookPhoto && (
+        <View style={styles.skipContainer}>
+          <Ionicons name="information-circle-outline" size={hp(2.5)} color="#8E8E8E" />
+          <Text style={styles.skipText}>
+            You can skip the yearbook photo and a generic avatar will be used. You can add photos later in settings.
           </Text>
         </View>
-      )}
-
-      {/* Photo Count */}
-      {localPhotos.length > 0 && (
-        <Text style={styles.photoCount}>
-          {localPhotos.length} of 5 photos
-        </Text>
       )}
     </ScrollView>
   )
@@ -249,25 +328,128 @@ const createStyles = () => StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    paddingVertical: hp(2),
-    paddingBottom: hp(10),
+    paddingVertical: hp(2.5),
+    paddingBottom: hp(28), // Extra padding for fixed navigation buttons at bottom
     flexGrow: 1,
+    gap: hp(1.5),
+  },
+  header: {
+    paddingHorizontal: wp(4),
+    gap: hp(1),
+  },
+  pill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: wp(3),
+    paddingVertical: hp(0.8),
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  pillText: {
+    fontSize: hp(1.5),
+    color: '#6F42C1',
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   title: {
-    fontSize: hp(4),
+    fontSize: hp(3.6),
     fontWeight: '800',
     color: '#1A1A1A',
     fontFamily: 'System',
     marginBottom: hp(1),
-    textAlign: 'center',
+    textAlign: 'left',
   },
   subtitle: {
     fontSize: hp(2.2),
     color: '#8E8E8E',
     fontFamily: 'System',
-    marginBottom: hp(4),
+    marginBottom: hp(2),
+    textAlign: 'left',
+  },
+  previewCard: {
+    marginHorizontal: wp(4),
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    overflow: 'hidden',
+    ...ONBOARDING_THEME.shadows?.sm,
+  },
+  previewImageWrapper: {
+    width: '100%',
+    aspectRatio: 1.4,
+    backgroundColor: '#F5F0FF',
+    position: 'relative',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  previewPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: hp(1),
+  },
+  previewPlaceholderText: {
+    color: '#2A2A2A',
+    fontSize: hp(2),
+    fontWeight: '600',
+    marginTop: hp(1),
+  },
+  previewPlaceholderSubtext: {
+    color: '#8E8E8E',
+    fontSize: hp(1.6),
+    marginTop: hp(0.5),
     textAlign: 'center',
     paddingHorizontal: wp(4),
+  },
+  previewBadge: {
+    position: 'absolute',
+    top: wp(3),
+    left: wp(3),
+    backgroundColor: '#A45CFF',
+    paddingHorizontal: wp(3),
+    paddingVertical: hp(0.7),
+    borderRadius: 999,
+  },
+  previewBadgeText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: hp(1.4),
+  },
+  previewActions: {
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(2),
+    gap: hp(1),
+  },
+  previewHint: {
+    color: '#4B4B4B',
+    fontSize: hp(1.9),
+    lineHeight: hp(2.5),
+  },
+  addPrimaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#A45CFF',
+    borderRadius: 14,
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(1.6),
+    gap: wp(2),
+  },
+  addPrimaryText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: hp(2),
+    flex: 1,
+  },
+  addPrimaryCount: {
+    color: '#F5E8FF',
+    fontWeight: '600',
+    fontSize: hp(1.8),
   },
   processingContainer: {
     alignItems: 'center',
@@ -284,13 +466,13 @@ const createStyles = () => StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     paddingHorizontal: wp(4),
-    marginBottom: hp(3),
+    marginBottom: hp(1),
+    rowGap: wp(2),
   },
   addPhotoButton: {
     width: (wp(100) - wp(8) - wp(2)) / 2, // Screen width - padding - gap, divided by 2
     aspectRatio: 1,
-    marginBottom: wp(2),
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
     borderRadius: 16,
     borderWidth: 2,
     borderColor: '#A45CFF',
@@ -298,6 +480,7 @@ const createStyles = () => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: hp(1),
+    paddingHorizontal: wp(3),
   },
   addPhotoText: {
     fontSize: hp(1.8),
@@ -305,13 +488,17 @@ const createStyles = () => StyleSheet.create({
     fontFamily: 'System',
     fontWeight: '600',
   },
+  addPhotoSubtext: {
+    fontSize: hp(1.5),
+    color: '#7B61FF',
+    opacity: 0.8,
+  },
   photoCard: {
     width: (wp(100) - wp(8) - wp(2)) / 2, // Screen width - padding - gap, divided by 2
     aspectRatio: 1,
-    marginBottom: wp(2),
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
     position: 'relative',
   },
   photoImage: {
@@ -329,7 +516,7 @@ const createStyles = () => StyleSheet.create({
     borderRadius: 9999,
   },
   yearbookBadgeText: {
-    fontSize: hp(1.4),
+    fontSize: hp(1.3),
     color: '#FFFFFF',
     fontFamily: 'System',
     fontWeight: '600',
@@ -384,9 +571,151 @@ const createStyles = () => StyleSheet.create({
     fontSize: hp(2),
     color: '#8E8E8E',
     fontFamily: 'System',
-    textAlign: 'center',
+    textAlign: 'left',
+    marginTop: hp(1),
+    marginHorizontal: wp(4),
+    opacity: 0.8,
+  },
+  quoteContainer: {
     marginTop: hp(2),
+    marginBottom: hp(2),
+    paddingHorizontal: wp(4),
+  },
+  quoteLabel: {
+    fontSize: hp(2.2),
+    fontWeight: '700',
+    color: '#1A1A1A',
+    fontFamily: 'System',
+    marginBottom: hp(1),
+  },
+  quoteHint: {
+    fontSize: hp(1.8),
+    color: '#8E8E8E',
+    fontFamily: 'System',
+    marginBottom: hp(2),
+    lineHeight: hp(2.5),
+  },
+  quoteInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 12,
+    padding: wp(4),
+    fontSize: hp(2),
+    color: '#1A1A1A',
+    fontFamily: 'System',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    minHeight: hp(10),
+    textAlignVertical: 'top',
+  },
+  characterCount: {
+    fontSize: hp(1.6),
+    color: '#8E8E8E',
+    fontFamily: 'System',
+    textAlign: 'right',
+    marginTop: hp(1),
     opacity: 0.7,
   },
+  tipsContainer: {
+    marginHorizontal: wp(4),
+    marginTop: hp(2),
+    backgroundColor: 'rgba(76, 175, 80, 0.08)',
+    borderRadius: 12,
+    padding: wp(4),
+    gap: hp(1.5),
+  },
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(3),
+  },
+  tipText: {
+    flex: 1,
+    fontSize: hp(1.8),
+    color: '#2A2A2A',
+    fontFamily: 'System',
+    lineHeight: hp(2.4),
+  },
+  skipContainer: {
+    marginHorizontal: wp(4),
+    marginTop: hp(2),
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 12,
+    padding: wp(4),
+    gap: wp(3),
+  },
+  skipText: {
+    flex: 1,
+    fontSize: hp(1.7),
+    color: '#8E8E8E',
+    fontFamily: 'System',
+    lineHeight: hp(2.3),
+  },
+  gallerySection: {
+    marginHorizontal: wp(4),
+    marginTop: hp(3),
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    padding: wp(4),
+  },
+  gallerySectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: hp(2),
+    gap: wp(3),
+  },
+  gallerySectionHeaderLeft: {
+    flex: 1,
+  },
+  gallerySectionTitle: {
+    fontSize: hp(2),
+    fontWeight: '700',
+    color: '#1A1A1A',
+    fontFamily: 'System',
+    marginBottom: hp(0.5),
+  },
+  gallerySectionSubtitle: {
+    fontSize: hp(1.5),
+    color: '#8E8E8E',
+    fontFamily: 'System',
+    lineHeight: hp(2),
+  },
+  addGalleryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(164, 92, 255, 0.1)',
+    paddingHorizontal: wp(3),
+    paddingVertical: hp(1),
+    borderRadius: hp(2),
+    gap: wp(1.5),
+    minWidth: wp(20),
+  },
+  addGalleryText: {
+    fontSize: hp(1.6),
+    color: '#A45CFF',
+    fontFamily: 'System',
+    fontWeight: '700',
+  },
+  emptyGalleryState: {
+    paddingVertical: hp(4),
+    alignItems: 'center',
+    gap: hp(1),
+  },
+  emptyGalleryText: {
+    fontSize: hp(1.8),
+    fontWeight: '600',
+    color: '#2A2A2A',
+    fontFamily: 'System',
+  },
+  emptyGallerySubtext: {
+    fontSize: hp(1.5),
+    color: '#8E8E8E',
+    fontFamily: 'System',
+    textAlign: 'center',
+    paddingHorizontal: wp(4),
+  },
 })
-

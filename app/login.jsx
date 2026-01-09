@@ -1,21 +1,35 @@
-import { Text, ImageBackground, View, StyleSheet, Animated, Alert, TouchableWithoutFeedback, Keyboard } from 'react-native'
-import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'expo-router'
-import ScreenWrapper from '../components/ScreenWrapper'
 import { StatusBar } from 'expo-status-bar'
-import { useAppTheme } from './theme'
-import { hp, wp } from '../helpers/common'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Alert, Animated, ImageBackground, Keyboard, StyleSheet, Text, TouchableWithoutFeedback, View, useColorScheme } from 'react-native'
 import AnimatedLogo from '../components/AnimatedLogo'
-import Input from '../components/Input'
-import Button from '../components/Button'
 import BackButton from '../components/BackButton'
+import Button from '../components/Button'
+import Input from '../components/Input'
+import ScreenWrapper from '../components/ScreenWrapper'
+import { hp } from '../helpers/common'
+import { useSendOTP } from '../hooks/useSendOTP'
+import { useAppTheme, useThemeMode } from './theme'
 
 export default function Login() {
   const theme = useAppTheme()
   const styles = createStyles(theme)
   const router = useRouter()
   const [email, setEmail] = useState('')
+  const [isSending, setIsSending] = useState(false)
   const hoverValue = useRef(new Animated.Value(0)).current
+  const { mutate: sendOTP } = useSendOTP()
+  const { setMode } = useThemeMode()
+  const systemScheme = useColorScheme() || 'light'
+
+  // Force light mode while login screen is displayed, then restore system preference
+  // Use useLayoutEffect to ensure theme changes BEFORE render
+  useLayoutEffect(() => {
+    setMode('light')
+    return () => {
+      setMode(systemScheme)
+    }
+  }, [setMode, systemScheme])
 
   useEffect(() => {
     const hoverAnimation = Animated.loop(
@@ -46,60 +60,52 @@ export default function Login() {
   })
 
   const handleContinue = () => {
-    
     const trimmedEmail = email.trim()
-    
+
     if (!trimmedEmail) {
       Alert.alert('Error', 'Please enter your email address')
       return
     }
 
-    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(trimmedEmail)) {
       Alert.alert('Invalid Email', 'Please enter a valid email address')
       return
     }
 
+    setIsSending(true)
 
-    // TODO: Replace with actual email check using useCheckEmail hook
-    // For now, simulate checking - you'll replace this with:
-    // const { data: userExists } = useCheckEmail(trimmedEmail)
-    // const isNewUser = !userExists
-    
-    // Temporary: Simulate new user for testing
-    const isNewUser = true // Replace with actual check
-    
-    // Navigate to OTP screen
-    const route = `/otp?type=${isNewUser ? 'new' : 'returning'}&email=${encodeURIComponent(trimmedEmail)}`
-    
-    
-    try {
-      router.push(route)
-    } catch (error) {
-      console.error('❌ Navigation error:', error)
-      Alert.alert('Navigation Error', error.message || 'Failed to navigate')
-    }
+    sendOTP(trimmedEmail, {
+      onSuccess: () => {
+        setIsSending(false)
+        router.push(`/otp?email=${encodeURIComponent(trimmedEmail)}`)
+      },
+      onError: (error) => {
+        console.error('❌ Error sending OTP:', error)
+        Alert.alert('Error', error.message || 'Failed to send code')
+        setIsSending(false)
+      },
+    })
   }
 
   return (
     <ImageBackground
       source={require('../assets/images/bonded-gradient.jpg')}
       style={styles.background}
-      resizeMode='cover'
+      resizeMode="cover"
     >
-      <ScreenWrapper bg='transparent'>
-        <StatusBar style='light' />
+      <ScreenWrapper bg="transparent">
+        <StatusBar style="light" />
         <BackButton onPress={() => router.back()} />
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.container}>
             <AnimatedLogo size={60} style={styles.animatedLogo} />
             <Text style={styles.title}>Please enter your email to continue.</Text>
-            
-            <Animated.View 
+
+            <Animated.View
               style={[
                 styles.inputContainer,
-                { transform: [{ translateY: hoverTranslate }] }
+                { transform: [{ translateY: hoverTranslate }] },
               ]}
             >
               <Input
@@ -111,56 +117,57 @@ export default function Login() {
                 autoCorrect={false}
                 containerStyle={styles.inputWrapper}
               />
-              
-             
             </Animated.View>
+
             <Button
-                title="Continue"
-                onPress={handleContinue}
-                buttonStyle={styles.button}
-              />
+              title={isSending ? 'Sending...' : 'Continue'}
+              onPress={handleContinue}
+              buttonStyle={styles.button}
+              disabled={isSending}
+            />
           </View>
         </TouchableWithoutFeedback>
       </ScreenWrapper>
     </ImageBackground>
-  )     
+  )
 }
 
-const createStyles = (theme) => StyleSheet.create({
-  background: {
-    flex: 1,
-    width: '100%',
-  },
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: wp(6),
-  },
-  animatedLogo: {
-    marginTop: hp(-20),
-    marginBottom: hp(4),
-  },
-  title: {
-    color: theme.colors.textPrimary,
-    fontSize: hp(3.5),
-    fontWeight: '800',
-    textAlign: 'center',
-    letterSpacing: -0.5,
-    fontFamily: theme.typography.fontFamily.heading,
-    marginBottom: hp(6),
-    paddingHorizontal: wp(4),
-  },
-  inputContainer: {
-    width: '100%',
-    alignItems: 'center',
-    gap: hp(3),
-  },
-  inputWrapper: {
-    width: '100%',
-  },
-  button: {
-    width: '100%',
-    marginTop: hp(10),
-  },
-})
+const createStyles = (theme) =>
+  StyleSheet.create({
+    background: {
+      flex: 1,
+      width: '100%',
+    },
+    container: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: theme.spacing.xxxl,
+    },
+    animatedLogo: {
+      marginTop: hp(-20),
+      marginBottom: hp(4),
+    },
+    title: {
+      color: theme.colors.textPrimary,
+      fontSize: theme.typography.sizes.xxl,
+      fontWeight: theme.typography.weights.extrabold,
+      textAlign: 'center',
+      letterSpacing: -0.5,
+      fontFamily: theme.typography.fontFamily.heading,
+      marginBottom: theme.spacing.xxxl,
+      paddingHorizontal: theme.spacing.lg,
+    },
+    inputContainer: {
+      width: '100%',
+      alignItems: 'center',
+      gap: theme.spacing.md,
+    },
+    inputWrapper: {
+      width: '100%',
+    },
+    button: {
+      width: '100%',
+      marginTop: hp(10),
+    },
+  })

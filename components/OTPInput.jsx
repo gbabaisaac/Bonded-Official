@@ -1,13 +1,22 @@
-import { View, TextInput, StyleSheet, Platform } from 'react-native'
 import React, { useRef, useState } from 'react'
+import { Platform, StyleSheet, TextInput, View } from 'react-native'
 import { useAppTheme } from '../app/theme'
 import { hp, wp } from '../helpers/common'
 
-const OTPInput = ({ length = 4, onComplete, value, onChangeText }) => {
+const OTPInput = ({ length = 6, onComplete, value, onChangeText }) => {
   const theme = useAppTheme()
   const styles = createStyles(theme)
   const inputRefs = useRef([])
   const [codes, setCodes] = useState(Array(length).fill(''))
+
+  // Sync with parent value prop
+  React.useEffect(() => {
+    if (value !== undefined) {
+      const valueArray = value.split('').slice(0, length)
+      const paddedArray = [...valueArray, ...Array(length - valueArray.length).fill('')]
+      setCodes(paddedArray)
+    }
+  }, [value, length])
 
   const handleChange = (text, index) => {
     // Only allow single digit

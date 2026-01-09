@@ -1,8 +1,8 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native'
 import React, { useState } from 'react'
-import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { ONBOARDING_THEME } from '../../../constants/onboardingTheme'
 import { hp, wp } from '../../../helpers/common'
+import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
 
 const PersonalityStep = ({ formData, updateFormData, onScroll }) => {
   const styles = createStyles(ONBOARDING_THEME)
@@ -110,6 +110,9 @@ const PersonalityStep = ({ formData, updateFormData, onScroll }) => {
       showsVerticalScrollIndicator={false}
       onScroll={onScroll}
       scrollEventThrottle={16}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled={true}
+      bounces={true}
     >
       <Text style={styles.title}>Personality Quiz</Text>
       <Text style={styles.subtitle}>Answer a few questions to find compatible matches (optional)</Text>
@@ -142,6 +145,7 @@ const PersonalityStep = ({ formData, updateFormData, onScroll }) => {
               ]}
               onPress={() => handleAnswer(option.value)}
               activeOpacity={0.7}
+              delayPressIn={0}
             >
               <Text
                 style={[
@@ -183,7 +187,7 @@ const createStyles = () => StyleSheet.create({
   },
   contentContainer: {
     paddingVertical: hp(2),
-    paddingBottom: hp(6),
+    paddingBottom: hp(20), // Extra padding for fixed navigation buttons at bottom
   },
   title: {
     fontSize: hp(4),

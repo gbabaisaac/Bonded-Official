@@ -1,39 +1,21 @@
-import { View, StyleSheet } from 'react-native'
 import React from 'react'
-import Button from '../Button'
+import { StyleSheet, View } from 'react-native'
 import { ONBOARDING_THEME } from '../../constants/onboardingTheme'
 import { hp, wp } from '../../helpers/common'
+import Button from '../Button'
 
 const OnboardingNavigation = ({
   isFirstStep,
   canContinue,
   onContinue,
   onBack,
-  onFinishLater,
   isSaving,
-  stepIndicator,
 }) => {
   const styles = createStyles(ONBOARDING_THEME)
   return (
     <View style={styles.container}>
-      {/* Step Indicator */}
-      {stepIndicator}
-
-      {/* Continue and Finish Later Buttons */}
+      {/* Continue Button */}
       <View style={styles.primaryButtons}>
-        {/* Finish Later - Only show if past first step */}
-        {!isFirstStep && (
-          <Button
-            title="Finish Later"
-            onPress={onFinishLater}
-            buttonStyle={[styles.button, styles.finishLaterButton]}
-            textStyle={styles.finishLaterText}
-            theme={ONBOARDING_THEME}
-            hasShadow={false}
-          />
-        )}
-
-        {/* Continue Button */}
         <Button
           title={isSaving ? "Saving..." : "Continue"}
           onPress={onContinue}
@@ -53,10 +35,9 @@ const OnboardingNavigation = ({
 
 export default OnboardingNavigation
 
-const createStyles = () => StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   container: {
-    paddingBottom: hp(4),
-    gap: hp(1.5),
+    paddingBottom: hp(2),
   },
   primaryButtons: {
     flexDirection: 'row',
@@ -64,17 +45,11 @@ const createStyles = () => StyleSheet.create({
   },
   button: {
     flex: 1,
-  },
-  finishLaterButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 2,
-    borderColor: '#A45CFF',
-  },
-  finishLaterText: {
-    color: '#A45CFF',
+    paddingVertical: hp(1.4),
+    borderRadius: 14,
   },
   continueButton: {
-    backgroundColor: '#A45CFF', // Purple color - this should override Button's default
+    backgroundColor: theme.colors.bondedPurple,
   },
   buttonDisabled: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -84,4 +59,3 @@ const createStyles = () => StyleSheet.create({
     color: '#8E8E8E',
   },
 })
-

@@ -1,26 +1,26 @@
-import React, { useState, useMemo } from 'react'
+import { Ionicons } from '@expo/vector-icons'
+import { LinearGradient } from 'expo-linear-gradient'
+import { useRouter } from 'expo-router'
+import React, { useMemo, useState } from 'react'
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  FlatList,
-  Image,
-  Platform,
+    FlatList,
+    Image,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
-import { useRouter } from 'expo-router'
-import { hp, wp } from '../helpers/common'
-import { useAppTheme } from './theme'
+import AppCard from '../components/AppCard'
 import AppTopBar from '../components/AppTopBar'
 import BottomNav from '../components/BottomNav'
-import AppCard from '../components/AppCard'
 import Chip from '../components/Chip'
-import { LinearGradient } from 'expo-linear-gradient'
 import { useClubsContext } from '../contexts/ClubsContext'
+import { hp, wp } from '../helpers/common'
+import { useAppTheme } from './theme'
 
 const CATEGORIES = [
   { value: 'all', label: 'All Categories' },
@@ -117,6 +117,36 @@ export default function Clubs() {
                   <Text style={styles.leadershipMore}>
                     +{item.leadership.length - 2} more
                   </Text>
+                )}
+              </View>
+            )}
+            
+            {/* Meeting Information */}
+            {(item.meetingTimes || item.meetingLocation) && (
+              <View style={styles.meetingInfo}>
+                {item.meetingTimes && item.meetingTimes.length > 0 && (
+                  <View style={styles.meetingInfoRow}>
+                    <Ionicons name="time-outline" size={hp(1.4)} color={theme.colors.textSecondary} />
+                    <Text style={styles.meetingInfoText} numberOfLines={1}>
+                      {item.meetingTimes[0].day} at {new Date(item.meetingTimes[0].time).toLocaleTimeString('en-US', { 
+                        hour: 'numeric', 
+                        minute: '2-digit',
+                        hour12: true 
+                      })}
+                      {item.meetingTimes.length > 1 && ` +${item.meetingTimes.length - 1} more`}
+                    </Text>
+                    {!item.isMeetingPublic && (
+                      <Ionicons name="lock-closed-outline" size={hp(1.2)} color={theme.colors.textSecondary} style={{ marginLeft: theme.spacing.xs }} />
+                    )}
+                  </View>
+                )}
+                {item.meetingLocation && (
+                  <View style={styles.meetingInfoRow}>
+                    <Ionicons name="location-outline" size={hp(1.4)} color={theme.colors.textSecondary} />
+                    <Text style={styles.meetingInfoText} numberOfLines={1}>
+                      {item.meetingLocation}
+                    </Text>
+                  </View>
                 )}
               </View>
             )}
@@ -401,6 +431,21 @@ const createStyles = (theme) => StyleSheet.create({
     fontFamily: theme.typography.fontFamily.body,
     color: theme.colors.bondedPurple,
     fontWeight: '600',
+  },
+  meetingInfo: {
+    marginTop: hp(0.8),
+    gap: hp(0.4),
+  },
+  meetingInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(1.5),
+  },
+  meetingInfoText: {
+    fontSize: hp(1.3),
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textSecondary,
+    flex: 1,
   },
 })
 

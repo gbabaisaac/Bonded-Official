@@ -5,17 +5,17 @@ import React, { useMemo, useRef, useState } from 'react'
 import {
     Alert,
     Animated,
-  FlatList,
+    FlatList,
     Image,
     Keyboard,
     KeyboardAvoidingView,
-  Modal,
+    Modal,
     Platform,
-  Pressable,
-  ScrollView,
+    Pressable,
+    ScrollView,
     StyleSheet,
     Text,
-  TextInput,
+    TextInput,
     TouchableOpacity,
     View
 } from 'react-native'
@@ -28,9 +28,9 @@ import PostTags from '../components/Forum/PostTags'
 import RepostModal from '../components/Forum/RepostModal'
 import ForumSelectorModal from '../components/ForumSelectorModal'
 import ForumSwitcher from '../components/ForumSwitcher'
-import { 
-  Add, 
-  ArrowDownCircle, 
+import {
+    Add,
+    ArrowDownCircle,
     ArrowUpCircle,
     Check,
     ChevronDown,
@@ -38,11 +38,10 @@ import {
     Heart,
     HeartFill,
     ImageIcon,
-  MessageCircle, 
-  MoreHorizontal,
-  Person,
+    MessageCircle,
+    MoreHorizontal,
+    Person,
     Repeat,
-    Search,
     Share2,
     Video,
     X
@@ -51,373 +50,29 @@ import ShareModal from '../components/ShareModal'
 import Stories from '../components/Stories/Stories'
 import StoryFlow from '../components/Stories/StoryFlow'
 import StoryViewer from '../components/Stories/StoryViewer'
-import { useAppTheme } from './theme'
+import SegmentedControl from '../components/ui/SegmentedControl'
 import { useStoriesContext } from '../contexts/StoriesContext'
 import { hp, wp } from '../helpers/common'
+import { useQueryClient, useMutation } from '@tanstack/react-query'
+import { useCreatePost } from '../hooks/useCreatePost'
+import { useComments } from '../hooks/useComments'
+import { useCurrentUserProfile } from '../hooks/useCurrentUserProfile'
+import { useForums } from '../hooks/useForums'
+import { usePosts } from '../hooks/usePosts'
+import { useUniversities } from '../hooks/useUniversities'
+import { useAuthStore } from '../stores/authStore'
+import { isSuperAdminEmail } from '../utils/admin'
+import { useAppTheme } from './theme'
+import { supabase } from '../lib/supabase'
+import { uploadImageToBondedMedia } from '../helpers/mediaStorage'
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList)
 
-const MOCK_STORIES = Array.from({ length: 8 }).map((_, index) => ({
-  id: `story-${index + 1}`,
-  name: ['Dorms', 'Library', 'Quad', 'Clubs', 'Dining', 'Events', 'Study', 'Random'][index % 8],
-}))
-
-const MOCK_COMMENTS = {
-  'post-1': [
-    {
-      id: 'comment-1-1',
-      author: 'Student123',
-      isAnon: false,
-      body: 'The 24/7 study room in the engineering building is great! Usually pretty quiet after 8pm.',
-      upvotes: 8,
-      downvotes: 0,
-      timeAgo: '1h',
-      replies: [
-        {
-          id: 'reply-1-1-1',
-          author: 'Anon',
-          isAnon: true,
-          body: 'Thanks for the tip! Will check it out.',
-          upvotes: 2,
-          downvotes: 0,
-          timeAgo: '45m',
-        },
-      ],
-    },
-    {
-      id: 'comment-1-2',
-      author: 'Anon',
-      isAnon: true,
-      body: 'Coffee shop near the quad stays open until midnight. Good vibes but can get loud.',
-      upvotes: 5,
-      downvotes: 0,
-      timeAgo: '45m',
-      replies: [],
-    },
-    {
-      id: 'comment-1-3',
-      author: 'StudyBuddy',
-      isAnon: false,
-      body: 'Library basement is underrated. Super quiet and has good lighting.',
-      upvotes: 12,
-      downvotes: 0,
-      timeAgo: '30m',
-      replies: [],
-    },
-    {
-      id: 'comment-1-4',
-      author: 'Anon',
-      isAnon: true,
-      body: 'The new student center has private study pods you can book. Worth checking out!',
-      upvotes: 3,
-      downvotes: 0,
-      timeAgo: '15m',
-      replies: [],
-    },
-  ],
-  'post-2': [
-    {
-      id: 'comment-2-1',
-      author: 'CS Major',
-      isAnon: false,
-      body: 'Took it last semester. Focus on the practice problems from the textbook - very similar format.',
-      upvotes: 15,
-      downvotes: 0,
-      timeAgo: '3h',
-      replies: [
-        {
-          id: 'reply-2-1-1',
-          author: 'Anon',
-          isAnon: true,
-          body: 'Which chapter should I focus on most?',
-          upvotes: 1,
-          downvotes: 0,
-          timeAgo: '2h',
-        },
-        {
-          id: 'reply-2-1-2',
-          author: 'CS Major',
-          isAnon: false,
-          body: 'Chapters 5-7 are the most important for the midterm.',
-          upvotes: 4,
-          downvotes: 0,
-          timeAgo: '1h',
-        },
-      ],
-    },
-    {
-      id: 'comment-2-2',
-      author: 'Anon',
-      isAnon: true,
-      body: 'The midterm is fair but time is tight. Practice writing code by hand.',
-      upvotes: 9,
-      downvotes: 0,
-      timeAgo: '2h',
-      replies: [],
-    },
-    {
-      id: 'comment-2-3',
-      author: 'DataStructures',
-      isAnon: false,
-      body: 'Review the linked list and tree traversal algorithms. Those always show up.',
-      upvotes: 11,
-      downvotes: 0,
-      timeAgo: '1h',
-      replies: [],
-    },
-  ],
-  'post-3': [
-    {
-      id: 'comment-3-1',
-      author: 'Former Student',
-      isAnon: false,
-      body: 'Hard but fair is accurate. Workload is heavy but you learn a lot. Worth it if you put in the effort.',
-      upvotes: 7,
-      downvotes: 0,
-      timeAgo: '6h',
-      replies: [],
-    },
-    {
-      id: 'comment-3-2',
-      author: 'Anon',
-      isAnon: true,
-      body: 'Expect 10-15 hours per week on assignments. Lectures are clear though.',
-      upvotes: 4,
-      downvotes: 0,
-      timeAgo: '5h',
-      replies: [],
-    },
-  ],
-}
-
-const POST_TITLES = [
-  // Social/Casual posts
-  'Anyone else see that couple making out in the library?',
-  'Who else is procrastinating right now?',
-  'The dining hall pizza is actually fire today',
-  'Someone left their AirPods in the quad',
-  'Why is everyone so quiet in the elevator?',
-  'Best spot to people watch on campus?',
-  'Anyone else tired of group project members who do nothing?',
-  'The WiFi in my dorm is absolutely terrible',
-  'Who else is surviving on coffee and ramen?',
-  'Someone please tell me why tuition keeps going up',
-  'Anyone else feel like they\'re faking it till they make it?',
-  'The library at 2am hits different',
-  'Who else is already counting down to spring break?',
-  'Someone left their laundry in the dryer for 3 hours',
-  'Why do professors assign work over break?',
-  'Anyone else get anxiety from group chats?',
-  'The person who sits next to me in class smells amazing',
-  'Who else is living that broke college student life?',
-  'Someone please adopt this stray cat near the dorms',
-  'Why is it so hard to make friends in college?',
-  'Anyone else feel like they\'re drowning in assignments?',
-  'The person in front of me in line paid with change',
-  'Who else is questioning their major choice?',
-  'Someone left their car running in the parking lot',
-  'Why do we have 8am classes?',
-  'Anyone else get weird vibes from that one professor?',
-  'The dining hall ran out of the good food again',
-  'Who else is just trying to pass at this point?',
-  'Someone please explain why textbooks cost $200',
-  'Anyone else see that person fall down the stairs?',
-  // School-related posts
-  'Best study spots on campus?',
-  'CS 201 midterm thread',
-  'Prof. Nguyen for Data Structures',
-  'Dorm room setup ideas?',
-  'Best coffee shops near campus',
-  'Looking for a study group for MATH 150',
-  'Campus gym hours?',
-  'Anyone know good parking spots?',
-  'Rate my schedule: CS 201, ENGL 101, MATH 150',
-  'Best professors for intro classes?',
-  'Library vs study rooms?',
-  'How to survive finals week',
-  'Looking for roommates for next year',
-  'Best clubs to join?',
-  'Campus dining hall reviews',
-  'Textbook buy/sell thread',
-  'Internship opportunities?',
-  'Study abroad experiences?',
-  'Best time to register for classes?',
-  'Campus WiFi issues?',
-]
-
-const POST_BODIES = [
-  // Social/Casual bodies
-  'Like get a room please',
-  'I have 3 assignments due tomorrow and I\'m on here',
-  'No cap, best pizza they\'ve had all semester',
-  'Found them by the fountain, come get them',
-  'It\'s so awkward when it\'s just you and one other person',
-  'I like sitting by the main entrance and watching people',
-  'Literally did all the work myself and they get the same grade',
-  'Can\'t even load a YouTube video',
-  'This is my diet and I\'m not ashamed',
-  'Like what are we even paying for at this point?',
-  'Every day I wake up and pretend I know what I\'m doing',
-  'The vibes are immaculate',
-  'Only 47 more days',
-  'I\'m about to take them out myself',
-  'We literally have ONE week off',
-  'The constant notifications give me anxiety',
-  'What cologne/perfume is that? Asking for a friend',
-  'Ramen for breakfast, lunch, and dinner',
-  'She\'s so cute but I\'m allergic',
-  'It\'s been 2 months and I still eat alone',
-  'I have 5 papers due this week send help',
-  'I felt so bad for them',
-  'Is it too late to switch?',
-  'It\'s been running for 20 minutes now',
-  'Who decided this was a good idea?',
-  'Something\'s off about them',
-  'They always run out right when I get there',
-  'Cs get degrees right?',
-  'I could buy a whole laptop for that',
-  'I hope they\'re okay',
-  // School-related bodies
-  'Looking for quiet places that stay open late. Any recommendations besides the main library?',
-  'How is everyone feeling about the midterm next week? Any tips from people who took it last semester?',
-  'Thinking of taking Nguyen for Data Structures. Hard but fair? How heavy is the workload?',
-  'Moving into the dorms next week. Any tips for making the space feel like home?',
-  'Need caffeine but tired of Starbucks. What are the best local spots?',
-  'Struggling with calculus. Anyone want to form a study group?',
-  'What are the gym hours? Is it usually crowded?',
-  'Commuting to campus and parking is a nightmare. Any secret spots?',
-  'Is this schedule too heavy? Looking for honest opinions.',
-  'Taking intro classes next semester. Who should I avoid?',
-]
-
-const FORUMS = ['Quad', 'Classes', 'RMP', 'Campus Life', 'Dorms', 'Library', 'Clubs', 'Random']
-const AUTHORS = ['Anon', 'CS 201', 'Rate My Professor', 'Student123', 'StudyBuddy', 'CS Major', 'DataStructures', 'Former Student']
-
-// Mock Forums Data
-const MOCK_FORUMS = [
-  // Main Forum (Pinned)
-  {
-    id: 'forum-quad',
-    name: 'Main Forum',
-    type: 'main',
-    description: 'Campus-wide discussions',
-    memberCount: 12450,
-    postCount: 1245,
-    unreadCount: 0,
-    isPinned: true,
-    code: null,
-    image: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800',
-  },
-  // Classes
-  {
-    id: 'forum-cs-201',
-    name: 'CS 201 - Data Structures',
-    type: 'class',
-    description: 'Professor: Dr. Smith',
-    memberCount: 234,
-    postCount: 45,
-    unreadCount: 3,
-    isPinned: false,
-    code: 'CS 201',
-    image: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800',
-  },
-  {
-    id: 'forum-engl-101',
-    name: 'ENGL 101 - Writing',
-    type: 'class',
-    description: 'Professor: Dr. Johnson',
-    memberCount: 189,
-    postCount: 28,
-    unreadCount: 1,
-    isPinned: false,
-    code: 'ENGL 101',
-    image: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800',
-  },
-  {
-    id: 'forum-math-150',
-    name: 'MATH 150 - Calc I',
-    type: 'class',
-    description: 'Professor: Dr. Williams',
-    memberCount: 312,
-    postCount: 67,
-    unreadCount: 0,
-    isPinned: false,
-    code: 'MATH 150',
-    image: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800',
-  },
-  // Organizations
-  {
-    id: 'forum-cs-club',
-    name: 'Computer Science Club',
-    type: 'org',
-    description: 'Tech talks, hackathons, and networking',
-    memberCount: 145,
-    postCount: 89,
-    unreadCount: 5,
-    isPinned: false,
-    code: null,
-    image: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800',
-  },
-  {
-    id: 'forum-basketball',
-    name: 'Basketball Team',
-    type: 'org',
-    description: 'Team updates and events',
-    memberCount: 12,
-    postCount: 23,
-    unreadCount: 2,
-    isPinned: false,
-    code: null,
-    image: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800',
-  },
-  // Private Forums
-  {
-    id: 'forum-roommates',
-    name: 'Roommates',
-    type: 'private',
-    description: 'Private group chat',
-    memberCount: 4,
-    postCount: 12,
-    unreadCount: 0,
-    isPinned: false,
-    code: null,
-    image: 'https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=800',
-  },
-  {
-    id: 'forum-study-group',
-    name: 'Study Group CS 201',
-    type: 'private',
-    description: 'Study sessions and notes',
-    memberCount: 8,
-    postCount: 34,
-    unreadCount: 1,
-    isPinned: false,
-    code: null,
-    image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800',
-  },
-]
-
-const MOCK_POSTS = Array.from({ length: 60 }).map((_, index) => ({
-  id: `post-${index + 1}`,
-  author: AUTHORS[index % AUTHORS.length],
-  isAnon: index % 3 === 0,
-  title: POST_TITLES[index % POST_TITLES.length],
-  body: POST_BODIES[index % POST_BODIES.length],
-  forum: FORUMS[index % FORUMS.length],
-  upvotes: Math.floor(Math.random() * 100) + 5,
-  commentsCount: Math.floor(Math.random() * 50) + 2,
-  timeAgo: `${Math.floor(Math.random() * 24)}h`,
-  tags: index % 4 === 0 ? ['Housing', 'Advice'] : index % 4 === 1 ? ['Events'] : index % 4 === 2 ? ['STEM', 'Need Help'] : [],
-  repostsCount: Math.floor(Math.random() * 20),
-  ...(index % 5 === 0 && {
-    media: [
-      {
-        uri: `https://images.pexels.com/photos/${140945 + index}/pexels-photo-${140945 + index}.jpeg?auto=compress&cs=tinysrgb&w=800`,
-        type: 'image',
-      },
-    ],
-  }),
-}))
+// All mock data removed - using real Supabase data
+// Comments: Loaded from Supabase forum_comments table (TODO: create useComments hook)
+// Posts: usePosts hook
+// Forums: useForums hook
+// Stories: useStories hook
 
 export default function Forum() {
   const theme = useAppTheme()
@@ -425,10 +80,12 @@ export default function Forum() {
   const router = useRouter()
   const params = useLocalSearchParams()
   const insets = useSafeAreaInsets()
-  const [posts, setPosts] = useState(MOCK_POSTS)
+  const queryClient = useQueryClient()
+  // Posts are now fetched from usePosts hook
   const [activePost, setActivePost] = useState(null)
   const [activeAuthorPost, setActiveAuthorPost] = useState(null)
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false)
+  const [postOptionsPost, setPostOptionsPost] = useState(null) // Post for which options menu is shown
   const [draftTitle, setDraftTitle] = useState('')
   const [draftBody, setDraftBody] = useState('')
   const [draftIsAnon, setDraftIsAnon] = useState(true)
@@ -442,7 +99,7 @@ export default function Forum() {
   const [draftPoll, setDraftPoll] = useState(null)
   const [showPollBuilder, setShowPollBuilder] = useState(false)
   const [currentSchool, setCurrentSchool] = useState(params.schoolName || 'University of Rhode Island')
-  const [currentForum, setCurrentForum] = useState(MOCK_FORUMS[0]) // Start with Main Forum
+  const [currentForum, setCurrentForum] = useState(null) // Will be set from useForums
   // Filter state removed - no longer needed
   const [tagFilter, setTagFilter] = useState(null) // Filter by specific tag
   const [isForumSelectorVisible, setIsForumSelectorVisible] = useState(false)
@@ -460,61 +117,162 @@ export default function Forum() {
   const [viewerStories, setViewerStories] = useState([])
   const [showShareModal, setShowShareModal] = useState(false)
   const [shareContent, setShareContent] = useState(null)
+  const [isCampusSelectorVisible, setIsCampusSelectorVisible] = useState(false)
+  const [selectedUniversityId, setSelectedUniversityId] = useState(null)
   
   const { getForumStories } = useStoriesContext()
+  const { user } = useAuthStore()
+  const isSuperAdmin = isSuperAdminEmail(user?.email)
+  const { data: userProfile } = useCurrentUserProfile() // For onboarding check
+  
+  // Fetch forums
+  const { data: forums = [], isLoading: forumsLoading } = useForums()
+  const { data: universities = [], isLoading: universitiesLoading } = useUniversities()
+
+  const selectedUniversity = useMemo(
+    () => universities.find((u) => u.id === selectedUniversityId) || null,
+    [universities, selectedUniversityId]
+  )
+
+  const visibleForums = useMemo(() => {
+    if (!isSuperAdmin || !selectedUniversityId) return forums
+    return forums.filter((forum) => forum.universityId === selectedUniversityId)
+  }, [forums, isSuperAdmin, selectedUniversityId])
+  
+  // Set default forum when forums load (only once when forums first become available)
+  React.useEffect(() => {
+    if (visibleForums.length > 0 && !currentForum) {
+      // Find main campus forum or use first forum
+      const mainForum = visibleForums.find(f => f.type === 'campus') || visibleForums[0]
+      if (mainForum) {
+        console.log('Setting default forum:', mainForum.name, mainForum.id)
+        setCurrentForum(mainForum)
+      }
+    }
+  }, [visibleForums]) // Removed currentForum from deps to avoid infinite loops
+  
+  // Also ensure forum is set if it becomes null (safety check)
+  React.useEffect(() => {
+    if (visibleForums.length > 0 && currentForum === null) {
+      const mainForum = visibleForums.find(f => f.type === 'campus') || visibleForums[0]
+      if (mainForum) {
+        console.log('Re-setting forum (was null):', mainForum.name, mainForum.id)
+        setCurrentForum(mainForum)
+      }
+    }
+  }, [visibleForums, currentForum])
+
+  React.useEffect(() => {
+    if (!isSuperAdmin || universities.length === 0 || selectedUniversityId) return
+    const fallbackUniversityId = currentForum?.universityId || universities[0]?.id || null
+    if (fallbackUniversityId) {
+      setSelectedUniversityId(fallbackUniversityId)
+    }
+  }, [isSuperAdmin, universities, selectedUniversityId, currentForum])
+
+  React.useEffect(() => {
+    if (!isSuperAdmin) return
+    if (!selectedUniversityId) return
+    const mainForum = visibleForums.find(f => f.type === 'campus') || visibleForums[0] || null
+    if (mainForum && mainForum.id !== currentForum?.id) {
+      setCurrentForum(mainForum)
+    }
+    if (!mainForum && currentForum) {
+      setCurrentForum(null)
+    }
+  }, [isSuperAdmin, selectedUniversityId, visibleForums, currentForum])
+  
+  // Fetch posts for current forum with pagination
+  const {
+    data: postsData,
+    isLoading: postsLoading,
+    error: postsError,
+    refetch: refetchPosts,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = usePosts(currentForum?.id, { tag: null }) // Tag filtering disabled for V1
+
+  const {
+    data: activePostComments = [],
+    refetch: refetchComments,
+  } = useComments(activePost?.id)
+
+  // Flatten paginated data into a single array
+  const posts = useMemo(() => {
+    if (!postsData?.pages) return []
+    return postsData.pages.flatMap((page) => page.posts || [])
+  }, [postsData])
+
+  const loadMorePosts = () => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }
+
+  // Create post mutation
+  const createPostMutation = useCreatePost()
+  
+  const currentForumId = currentForum?.id || null
+  
+  // Delete post mutation
+  const deletePostMutation = useMutation({
+    mutationFn: async (postId) => {
+      const { error } = await supabase
+        .from('posts')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', postId)
+        .eq('user_id', user?.id) // Ensure user owns the post
+
+      if (error) throw error
+    },
+    onSuccess: () => {
+      // Invalidate posts queries to refresh the feed
+      queryClient.invalidateQueries({ queryKey: ['posts', currentForumId] })
+      queryClient.invalidateQueries({ queryKey: ['posts'] })
+      setPostOptionsPost(null)
+      Alert.alert('Success', 'Post deleted successfully')
+    },
+    onError: (error) => {
+      console.error('Error deleting post:', error)
+      Alert.alert('Error', error.message || 'Failed to delete post. Please try again.')
+    }
+  })
+
+  const handleDeletePost = (post) => {
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deletePostMutation.mutate(post.id)
+        }
+      ]
+    )
+  }
   
   // Mock current user - replace with real auth
   const currentUser = {
-    id: 'user-123',
-    name: 'John Doe',
-    avatar: 'https://randomuser.me/api/portraits/men/1.jpg',
+    id: user?.id || 'user-123',
+    name: user?.email?.split('@')[0] || 'User',
+    avatar: null,
   }
   
-  const currentForumId = currentForum?.id || 'forum-quad'
-  
-  // Filter posts for current forum and search
+  // Posts are already filtered by forum and tag in the query
+  // Just apply sorting if needed
   const allPosts = useMemo(() => {
-    // Filter regular posts by current forum
-    let forumPosts = posts.filter((post) => {
-      // If forum property exists, match it
-      if (post.forum) {
-        // Map forum names to forum IDs
-        const forumMap = {
-          'Quad': 'forum-quad',
-          'Classes': 'forum-cs-201', // Default class forum
-          'RMP': 'forum-quad',
-          'Campus Life': 'forum-quad',
-          'Dorms': 'forum-quad',
-          'Library': 'forum-quad',
-          'Clubs': 'forum-cs-club',
-          'Random': 'forum-quad',
-        }
-        return forumMap[post.forum] === currentForumId || currentForumId === 'forum-quad'
-      }
-      // Default: show in main forum
-      return currentForumId === 'forum-quad'
-    })
+    if (posts.length === 0) return []
     
-    const regularPosts = forumPosts.map((post) => ({
+    // Posts are already sorted by created_at DESC from query
+    // Tag filtering is done in the query
+    return posts.map((post) => ({
       ...post,
       type: 'post',
-      sortDate: new Date(post.createdAt || Date.now()),
     }))
-    
-    const sorted = regularPosts.sort((a, b) => b.sortDate - a.sortDate)
-    
-    // All posts are shown (no filter needed)
-    let filtered = sorted
-    
-    // Apply tag filter
-    if (tagFilter) {
-      filtered = filtered.filter((item) => {
-        return item.tags && item.tags.includes(tagFilter)
-      })
-    }
-    
-    return filtered
-  }, [posts, currentForumId, tagFilter])
+  }, [posts])
   
   // Update school if params change
   React.useEffect(() => {
@@ -523,7 +281,7 @@ export default function Forum() {
     }
   }, [params.schoolName])
   const [isFavorited, setIsFavorited] = useState(false)
-  const [comments, setComments] = useState(MOCK_COMMENTS)
+  const [comments, setComments] = useState({}) // Comments loaded from Supabase via usePosts hook
   const [newCommentText, setNewCommentText] = useState('')
   const [newCommentIsAnon, setNewCommentIsAnon] = useState(true)
   const [replyingTo, setReplyingTo] = useState(null)
@@ -534,6 +292,368 @@ export default function Forum() {
   const lastScrollY = useRef(0)
   const headerTranslateY = useRef(new Animated.Value(0)).current
   const isAnimating = useRef(false)
+
+  React.useEffect(() => {
+    if (!activePost?.id) return
+    setComments((prev) => ({
+      ...prev,
+      [activePost.id]: activePostComments,
+    }))
+  }, [activePost?.id, activePostComments])
+
+  React.useEffect(() => {
+    if (!activePost) return
+    const updated = posts.find((post) => post.id === activePost.id)
+    if (updated) {
+      setActivePost((prev) => (prev ? { ...prev, ...updated } : prev))
+    }
+  }, [posts, activePost])
+
+  const syncPostCommentCount = async (postId) => {
+    if (!postId) return
+    const { count, error } = await supabase
+      .from('forum_comments')
+      .select('*', { count: 'exact', head: true })
+      .eq('post_id', postId)
+      .is('deleted_at', null)
+
+    if (error) {
+      console.error('Error counting comments:', error)
+      return
+    }
+
+    if (typeof count === 'number') {
+      const { error: updateError } = await supabase
+        .from('posts')
+        .update({ comments_count: count })
+        .eq('id', postId)
+
+      if (updateError) {
+        console.error('Error syncing comment count:', updateError)
+      }
+    }
+  }
+
+  const syncPostVoteCounts = async (postId) => {
+    if (!postId) return
+    const { count: upvotes, error: upvoteError } = await supabase
+      .from('post_reactions')
+      .select('*', { count: 'exact', head: true })
+      .eq('post_id', postId)
+      .eq('reaction_type', 'upvote')
+
+    if (upvoteError) {
+      console.error('Error counting upvotes:', upvoteError)
+      return
+    }
+
+    const { count: downvotes, error: downvoteError } = await supabase
+      .from('post_reactions')
+      .select('*', { count: 'exact', head: true })
+      .eq('post_id', postId)
+      .eq('reaction_type', 'downvote')
+
+    if (downvoteError) {
+      console.error('Error counting downvotes:', downvoteError)
+      return
+    }
+
+    const { error: updateError } = await supabase
+      .from('posts')
+      .update({
+        upvotes_count: upvotes || 0,
+        downvotes_count: downvotes || 0,
+      })
+      .eq('id', postId)
+
+    if (updateError) {
+      console.error('Error syncing vote counts:', updateError)
+    }
+  }
+
+  const updatePostCache = (postId, updater) => {
+    queryClient.setQueriesData({ queryKey: ['posts'] }, (old) => {
+      if (!old?.pages) return old
+      const pages = old.pages.map((page) => ({
+        ...page,
+        posts: (page.posts || []).map((post) => (
+          post.id === postId ? updater(post) : post
+        )),
+      }))
+      return { ...old, pages }
+    })
+  }
+
+  const handlePostReaction = async (postId, reactionType) => {
+    if (!user?.id) {
+      Alert.alert('Sign in required', 'Please sign in to vote on posts.')
+      return
+    }
+
+    const { data: existing, error } = await supabase
+      .from('post_reactions')
+      .select('id, reaction_type')
+      .eq('post_id', postId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Error loading reaction:', error)
+      Alert.alert('Error', 'Failed to update vote. Please try again.')
+      return
+    }
+
+    const currentPost = posts.find((post) => post.id === postId)
+    const currentUpvotes = currentPost?.upvotes || 0
+    const currentDownvotes = currentPost?.downvotes || 0
+    const isSameVote = existing?.reaction_type === reactionType
+
+    let nextUpvotes = currentUpvotes
+    let nextDownvotes = currentDownvotes
+
+    if (isSameVote) {
+      if (reactionType === 'upvote') {
+        nextUpvotes = Math.max(0, currentUpvotes - 1)
+      } else {
+        nextDownvotes = Math.max(0, currentDownvotes - 1)
+      }
+    } else if (existing) {
+      if (reactionType === 'upvote') {
+        nextUpvotes = currentUpvotes + 1
+        nextDownvotes = Math.max(0, currentDownvotes - 1)
+      } else {
+        nextDownvotes = currentDownvotes + 1
+        nextUpvotes = Math.max(0, currentUpvotes - 1)
+      }
+    } else {
+      if (reactionType === 'upvote') {
+        nextUpvotes = currentUpvotes + 1
+      } else {
+        nextDownvotes = currentDownvotes + 1
+      }
+    }
+
+    updatePostCache(postId, (post) => ({
+      ...post,
+      upvotes: nextUpvotes,
+      downvotes: nextDownvotes,
+    }))
+    setActivePost((prev) => (
+      prev && prev.id === postId
+        ? { ...prev, upvotes: nextUpvotes, downvotes: nextDownvotes }
+        : prev
+    ))
+
+    if (isSameVote) {
+      const { error: deleteError } = await supabase
+        .from('post_reactions')
+        .delete()
+        .eq('id', existing.id)
+
+      if (deleteError) {
+        console.error('Error removing reaction:', deleteError)
+        Alert.alert('Error', 'Failed to update vote. Please try again.')
+        return
+      }
+    } else if (existing) {
+      const { error: updateError } = await supabase
+        .from('post_reactions')
+        .update({ reaction_type: reactionType })
+        .eq('id', existing.id)
+
+      if (updateError) {
+        console.error('Error updating reaction:', updateError)
+        Alert.alert('Error', 'Failed to update vote. Please try again.')
+        return
+      }
+    } else {
+      const { error: insertError } = await supabase
+        .from('post_reactions')
+        .insert({
+          post_id: postId,
+          user_id: user.id,
+          reaction_type: reactionType,
+        })
+
+      if (insertError) {
+        console.error('Error inserting reaction:', insertError)
+        Alert.alert('Error', 'Failed to update vote. Please try again.')
+        return
+      }
+    }
+
+    await syncPostVoteCounts(postId)
+    await refetchPosts()
+  }
+
+  const getCommentCounts = (commentId, parentId = null) => {
+    if (!activePost?.id) {
+      return { upvotes: 0, downvotes: 0 }
+    }
+    const postComments = comments[activePost.id] || []
+    if (!parentId) {
+      const match = postComments.find((comment) => comment.id === commentId)
+      return {
+        upvotes: match?.upvotes || 0,
+        downvotes: match?.downvotes || 0,
+      }
+    }
+    const parent = postComments.find((comment) => comment.id === parentId)
+    const reply = parent?.replies?.find((item) => item.id === commentId)
+    return {
+      upvotes: reply?.upvotes || 0,
+      downvotes: reply?.downvotes || 0,
+    }
+  }
+
+  const handleCommentVote = async (commentId, parentId = null, direction = 'up') => {
+    if (!user?.id || !activePost?.id) {
+      Alert.alert('Sign in required', 'Please sign in to like comments.')
+      return
+    }
+
+    const voteKey = parentId ? `${parentId}-${commentId}` : commentId
+    const currentVote = userVotes[voteKey]
+    const newVote = currentVote === direction ? null : direction
+    const currentCounts = getCommentCounts(commentId, parentId)
+    let nextUpvotes = currentCounts.upvotes
+    let nextDownvotes = currentCounts.downvotes
+
+    if (currentVote === direction) {
+      if (direction === 'up') {
+        nextUpvotes = Math.max(0, currentCounts.upvotes - 1)
+      } else {
+        nextDownvotes = Math.max(0, currentCounts.downvotes - 1)
+      }
+    } else if (currentVote) {
+      if (direction === 'up') {
+        nextUpvotes = currentCounts.upvotes + 1
+        nextDownvotes = Math.max(0, currentCounts.downvotes - 1)
+      } else {
+        nextDownvotes = currentCounts.downvotes + 1
+        nextUpvotes = Math.max(0, currentCounts.upvotes - 1)
+      }
+    } else {
+      if (direction === 'up') {
+        nextUpvotes = currentCounts.upvotes + 1
+      } else {
+        nextDownvotes = currentCounts.downvotes + 1
+      }
+    }
+
+    setUserVotes((prev) => ({ ...prev, [voteKey]: newVote }))
+    setComments((prev) => ({
+      ...prev,
+      [activePost.id]: (prev[activePost.id] || []).map((comment) => {
+        if (parentId && comment.id === parentId) {
+          return {
+            ...comment,
+            replies: (comment.replies || []).map((reply) => (
+              reply.id === commentId
+                ? { ...reply, upvotes: nextUpvotes, downvotes: nextDownvotes }
+                : reply
+            )),
+          }
+        }
+        if (!parentId && comment.id === commentId) {
+          return { ...comment, upvotes: nextUpvotes, downvotes: nextDownvotes }
+        }
+        return comment
+      }),
+    }))
+
+    const { error } = await supabase
+      .from('forum_comments')
+      .update({ upvotes_count: nextUpvotes, downvotes_count: nextDownvotes })
+      .eq('id', commentId)
+
+    if (error) {
+      console.error('Error updating comment like:', error)
+      Alert.alert('Error', 'Failed to update like. Please try again.')
+      await refetchComments()
+      return
+    }
+
+    await refetchComments()
+  }
+
+  const submitComment = async ({ postId, parentId = null, body, isAnonymous, tempId = null }) => {
+    if (!user?.id) {
+      Alert.alert('Sign in required', 'Please sign in to comment.')
+      return false
+    }
+
+    const { data, error } = await supabase
+      .from('forum_comments')
+      .insert({
+        post_id: postId,
+        user_id: user.id,
+        parent_id: parentId,
+        body,
+        is_anonymous: isAnonymous,
+      })
+      .select(`
+        id,
+        post_id,
+        user_id,
+        parent_id,
+        body,
+        is_anonymous,
+        upvotes_count,
+        downvotes_count,
+        created_at
+      `)
+      .single()
+
+    if (error) {
+      console.error('Error posting comment:', error)
+      Alert.alert('Error', 'Failed to post comment. Please try again.')
+      await refetchComments()
+      return false
+    }
+
+    if (data?.id) {
+      const authorLabel = isAnonymous ? 'Anonymous' : currentUser.name
+      const savedComment = {
+        id: data.id,
+        author: authorLabel,
+        isAnon: isAnonymous,
+        body: data.body,
+        upvotes: data.upvotes_count || 0,
+        downvotes: data.downvotes_count || 0,
+        timeAgo: getTimeAgo(data.created_at),
+        replies: [],
+      }
+
+      setComments((prev) => {
+        const postComments = prev[postId] || []
+        const filtered = tempId
+          ? postComments.filter((comment) => comment.id !== tempId)
+          : postComments
+        return {
+          ...prev,
+          [postId]: parentId
+            ? filtered.map((comment) => (
+              comment.id === parentId
+                ? { ...comment, replies: [...(comment.replies || []), savedComment] }
+                : comment
+            ))
+            : [...filtered, savedComment],
+        }
+      })
+    }
+
+    if (tempId) {
+      pendingCommentIds.current[postId] = (
+        pendingCommentIds.current[postId] || []
+      ).filter((item) => item.id !== tempId)
+    }
+
+    await syncPostCommentCount(postId)
+    await refetchComments()
+    await refetchPosts()
+    return true
+  }
 
   const handlePickMedia = async (kind) => {
     try {
@@ -581,6 +701,31 @@ export default function Forum() {
     }
   }
 
+  const uploadPostMedia = async (postId) => {
+    if (!postId || draftMedia.length === 0 || !user?.id) return []
+
+    // TODO: Add video support once bonded-media allows videos.
+    // TODO: Align post media ownership with public.media schema (post linkage).
+    const imageMedia = draftMedia.filter((media) => media.type === 'image')
+    if (imageMedia.length === 0) return []
+
+    const uploads = await Promise.all(
+      imageMedia.map(async (media) => {
+        const result = await uploadImageToBondedMedia({
+          fileUri: media.uri,
+          mediaType: 'post',
+          ownerType: 'user',
+          ownerId: user.id,
+          userId: user.id,
+          postId,
+        })
+        return result?.path || null
+      })
+    )
+
+    return uploads.filter(Boolean)
+  }
+
   const handleCreateStory = () => {
     setIsStoryFlowVisible(true)
   }
@@ -621,7 +766,7 @@ export default function Forum() {
           <View style={[styles.storyAvatar, styles.storyAddAvatar]}>
             <Add
               size={hp(3)}
-              color={theme.colors.bondedPurple}
+              color={theme.colors.textSecondary}
               strokeWidth={2.5}
             />
           </View>
@@ -671,7 +816,7 @@ export default function Forum() {
               <LinearGradient
                 colors={item.isAnon 
                   ? ['#A855F7', '#9333EA'] 
-                  : [theme.colors.bondedPurple, theme.colors.bondedPurple + 'DD']
+                  : [theme.colors.textSecondary, theme.colors.textSecondary + 'DD']
                 }
                 style={styles.postAvatar}
               >
@@ -688,7 +833,13 @@ export default function Forum() {
           </Text>
         </View>
       </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7}>
+        <TouchableOpacity 
+          activeOpacity={0.7}
+          onPress={(e) => {
+            e.stopPropagation()
+            setPostOptionsPost(item)
+          }}
+        >
           <MoreHorizontal
                 size={hp(2.2)}
                 color={theme.colors.textSecondary}
@@ -777,13 +928,9 @@ export default function Forum() {
           <TouchableOpacity
             style={styles.voteButton}
             activeOpacity={0.7}
-            onPress={() =>
-              setPosts((prev) =>
-                prev.map((p) =>
-                  p.id === item.id ? { ...p, upvotes: p.upvotes + 1 } : p
-                )
-              )
-            }
+            onPress={async () => {
+              await handlePostReaction(item.id, 'upvote')
+            }}
           >
             <ArrowUpCircle
                 size={hp(2.4)}
@@ -804,13 +951,9 @@ export default function Forum() {
           <TouchableOpacity
             style={styles.voteButton}
             activeOpacity={0.7}
-            onPress={() =>
-              setPosts((prev) =>
-                prev.map((p) =>
-                  p.id === item.id ? { ...p, upvotes: p.upvotes - 1 } : p
-                )
-              )
-            }
+            onPress={async () => {
+              await handlePostReaction(item.id, 'downvote')
+            }}
           >
             <ArrowDownCircle
                 size={hp(2.4)}
@@ -897,40 +1040,27 @@ export default function Forum() {
           <ForumSwitcher
             currentForum={currentForum}
             onPress={() => setIsForumSelectorVisible(true)}
-            unreadCount={MOCK_FORUMS.reduce((sum, f) => sum + f.unreadCount, 0)}
+            unreadCount={visibleForums.reduce((sum, f) => sum + (f.unreadCount || 0), 0)}
           />
         </View>
 
         <View style={styles.headerRight}>
-          {/* Empty space for balance */}
+          {isSuperAdmin && (
+            <TouchableOpacity
+              style={styles.campusSelectorButton}
+              onPress={() => setIsCampusSelectorVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.campusSelectorText} numberOfLines={1}>
+                {selectedUniversity?.name || 'Select Campus'}
+              </Text>
+              <ChevronDown size={hp(1.6)} color={theme.colors.textSecondary} strokeWidth={2.5} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
 
-      {/* Tag Filter Bar */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tagFilterRow}
-      >
-        <Chip
-          label="All"
-          active={tagFilter === null}
-          onPress={() => setTagFilter(null)}
-          style={styles.tagFilterChip}
-        />
-        {['Housing', 'Advice', 'Events', 'Clubs', 'Random', 'Confessions', 'STEM', 'Need Help'].map(
-          (tag) => (
-            <Chip
-              key={tag}
-              label={tag}
-              active={tagFilter === tag}
-              onPress={() => setTagFilter(tagFilter === tag ? null : tag)}
-              style={styles.tagFilterChip}
-            />
-          )
-        )}
-      </ScrollView>
 
       {/* Stories */}
       <View style={styles.storiesWrapper}>
@@ -952,16 +1082,63 @@ export default function Forum() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.container}>
-        <AnimatedFlatList
-          data={allPosts}
-          keyExtractor={(item) => item.id || item.event?.id}
-          contentContainerStyle={styles.postsList}
-          showsVerticalScrollIndicator={false}
-          renderItem={renderPost}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          ListHeaderComponent={renderListHeader}
-        />
+        {(!currentForumId && !forumsLoading) ? (
+          <View style={styles.emptyForumState}>
+            <Text style={styles.emptyForumStateTitle}>No forums yet for this campus</Text>
+            <Text style={styles.emptyForumStateText}>
+              This campus needs a default forum before posts can appear.
+            </Text>
+          </View>
+        ) : (forumsLoading || postsLoading) ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>Loading posts...</Text>
+          </View>
+        ) : postsError ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>Failed to load posts. Please try again.</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => refetchPosts()}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <AnimatedFlatList
+            data={allPosts}
+            keyExtractor={(item) => item.id || item.event?.id}
+            contentContainerStyle={styles.postsList}
+            showsVerticalScrollIndicator={false}
+            renderItem={renderPost}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            ListHeaderComponent={renderListHeader}
+            onEndReached={loadMorePosts}
+            onEndReachedThreshold={0.5}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={[styles.emptyStateText, { color: theme.colors.textPrimary }]}>
+                  {'No posts yet. Be the first to post!'}
+                </Text>
+                {(
+                  <TouchableOpacity
+                    style={[styles.createFirstPostButton, { backgroundColor: theme.colors.accent }]}
+                    onPress={() => setIsCreateModalVisible(true)}
+                  >
+                    <Text style={styles.createFirstPostButtonText}>Create Post</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            }
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <View style={{ padding: hp(2), alignItems: 'center' }}>
+                  <Text style={{ color: theme.colors.textSecondary }}>Loading more posts...</Text>
+                </View>
+              ) : null
+            }
+          />
+        )}
 
 
         {/* Post / Comments Modal Shell */}
@@ -982,7 +1159,10 @@ export default function Forum() {
               {activePost && (
                 <>
                   <View style={styles.postModalHeader}>
-                    <Text style={styles.postModalTitle}>{activePost.title}</Text>
+                    <Text style={styles.postModalTitle} numberOfLines={2}>
+                      {activePost.title || activePost.body?.slice(0, 50)}
+                      {!activePost.title && activePost.body?.length > 50 && '...'}
+                    </Text>
                     <TouchableOpacity
                       onPress={() => setActivePost(null)}
                       style={styles.modalCloseButton}
@@ -996,8 +1176,7 @@ export default function Forum() {
                   </View>
 
                   <Text style={styles.postModalMeta}>
-                    {activePost.isAnon ? 'Anonymous' : activePost.author} •{' '}
-                    {activePost.forum} • {activePost.timeAgo}
+                    {activePost.isAnon ? 'Anonymous' : activePost.author} • {activePost.forum} • {activePost.timeAgo}
                   </Text>
 
                   <KeyboardAvoidingView
@@ -1018,62 +1197,22 @@ export default function Forum() {
                         {activePost.body}
                       </Text>
 
-                      <View style={styles.commentsHeader}>
-                        <Text style={styles.commentsTitle}>Comments</Text>
-                        <View style={styles.commentsHeaderRight}>
-                          <Text style={styles.commentsCount}>
-                            {activePost.commentsCount} total
+                      <View style={styles.commentsSection}>
+                        <View style={styles.commentsHeader}>
+                          <Text style={styles.commentsTitle}>
+                            Comments {activePost.commentsCount > 0 && (
+                              <Text style={styles.commentsCount}>({activePost.commentsCount})</Text>
+                            )}
                           </Text>
-                          <View style={styles.sortButtons}>
-                            <TouchableOpacity
-                              style={[
-                                styles.sortButton,
-                                commentSort === 'best' && styles.sortButtonActive,
-                              ]}
-                              onPress={() => setCommentSort('best')}
-                            >
-                              <Text
-                                style={[
-                                  styles.sortButtonText,
-                                  commentSort === 'best' && styles.sortButtonTextActive,
-                                ]}
-                              >
-                                Best
-                              </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[
-                                styles.sortButton,
-                                commentSort === 'new' && styles.sortButtonActive,
-                              ]}
-                              onPress={() => setCommentSort('new')}
-                            >
-                              <Text
-                                style={[
-                                  styles.sortButtonText,
-                                  commentSort === 'new' && styles.sortButtonTextActive,
-                                ]}
-                              >
-                                New
-                              </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[
-                                styles.sortButton,
-                                commentSort === 'old' && styles.sortButtonActive,
-                              ]}
-                              onPress={() => setCommentSort('old')}
-                            >
-                              <Text
-                                style={[
-                                  styles.sortButtonText,
-                                  commentSort === 'old' && styles.sortButtonTextActive,
-                                ]}
-                              >
-                                Old
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
+                          <SegmentedControl
+                            options={[
+                              { label: 'Best', value: 'best' },
+                              { label: 'New', value: 'new' },
+                            ]}
+                            value={commentSort}
+                            onChange={setCommentSort}
+                            style={styles.sortSegmented}
+                          />
                         </View>
                       </View>
 
@@ -1121,23 +1260,8 @@ export default function Forum() {
                                 <TouchableOpacity
                                     style={styles.commentLikeButton}
                                   activeOpacity={0.7}
-                                  onPress={() => {
-                                    const currentVote = userVotes[comment.id]
-                                    const newVote = currentVote === 'up' ? null : 'up'
-                                    setUserVotes((prev) => ({ ...prev, [comment.id]: newVote }))
-                                    setComments((prev) => ({
-                                      ...prev,
-                                      [activePost.id]: prev[activePost.id].map((c) => {
-                                        if (c.id !== comment.id) return c
-                                        let newUpvotes = c.upvotes
-                                        if (currentVote === 'up') {
-                                          newUpvotes = Math.max(0, newUpvotes - 1)
-                                        } else {
-                                          newUpvotes += 1
-                                        }
-                                          return { ...c, upvotes: newUpvotes }
-                                      }),
-                                    }))
+                                  onPress={async () => {
+                                    await handleCommentVote(comment.id, null, 'up')
                                   }}
                                 >
                                     {userVotes[comment.id] === 'up' ? (
@@ -1145,20 +1269,39 @@ export default function Forum() {
                                     ) : (
                                       <Heart size={hp(1.8)} color={theme.colors.textSecondary} strokeWidth={2} />
                                     )}
-                                    {comment.upvotes > 0 && (
+                                    {(comment.upvotes - (comment.downvotes || 0)) !== 0 && (
                                       <Text style={[
                                         styles.commentLikeText,
                                         userVotes[comment.id] === 'up' && styles.commentLikeTextActive
                                       ]}>
-                                        {comment.upvotes}
+                                        {comment.upvotes - (comment.downvotes || 0)}
                                 </Text>
                                     )}
                                     <Text style={[
                                       styles.commentLikeLabel,
                                       userVotes[comment.id] === 'up' && styles.commentLikeLabelActive
                                     ]}>
-                                      Like
+                                      Up
                                     </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.commentLikeButton}
+                                  activeOpacity={0.7}
+                                  onPress={async () => {
+                                    await handleCommentVote(comment.id, null, 'down')
+                                  }}
+                                >
+                                  <ArrowDownCircle
+                                    size={hp(1.8)}
+                                    color={userVotes[comment.id] === 'down' ? theme.statusColors.error : theme.colors.textSecondary}
+                                    strokeWidth={2}
+                                  />
+                                  <Text style={[
+                                    styles.commentLikeLabel,
+                                    userVotes[comment.id] === 'down' && styles.commentLikeLabelActive
+                                  ]}>
+                                    Down
+                                  </Text>
                                 </TouchableOpacity>
                               <TouchableOpacity
                                     style={styles.commentReplyButton}
@@ -1193,30 +1336,8 @@ export default function Forum() {
                                         <TouchableOpacity
                                               style={styles.commentLikeButton}
                                           activeOpacity={0.7}
-                                          onPress={() => {
-                                            const replyVoteKey = `${comment.id}-${reply.id}`
-                                            const currentVote = userVotes[replyVoteKey]
-                                            const newVote = currentVote === 'up' ? null : 'up'
-                                            setUserVotes((prev) => ({ ...prev, [replyVoteKey]: newVote }))
-                                            setComments((prev) => ({
-                                              ...prev,
-                                              [activePost.id]: prev[activePost.id].map((c) => {
-                                                if (c.id !== comment.id) return c
-                                                return {
-                                                  ...c,
-                                                  replies: c.replies.map((r) => {
-                                                    if (r.id !== reply.id) return r
-                                                    let newUpvotes = r.upvotes
-                                                    if (currentVote === 'up') {
-                                                      newUpvotes = Math.max(0, newUpvotes - 1)
-                                                    } else {
-                                                      newUpvotes += 1
-                                                    }
-                                                        return { ...r, upvotes: newUpvotes }
-                                                  }),
-                                                }
-                                              }),
-                                            }))
+                                          onPress={async () => {
+                                            await handleCommentVote(reply.id, comment.id, 'up')
                                           }}
                                         >
                                               {userVotes[`${comment.id}-${reply.id}`] === 'up' ? (
@@ -1224,13 +1345,13 @@ export default function Forum() {
                                               ) : (
                                                 <Heart size={hp(1.6)} color={theme.colors.textSecondary} strokeWidth={2} />
                                               )}
-                                              {reply.upvotes > 0 && (
+                                              {(reply.upvotes - (reply.downvotes || 0)) !== 0 && (
                                                 <Text style={[
                                                   styles.commentLikeText,
                                                   { fontSize: hp(1.3) },
                                                   userVotes[`${comment.id}-${reply.id}`] === 'up' && styles.commentLikeTextActive
                                                 ]}>
-                                                  {reply.upvotes}
+                                                  {reply.upvotes - (reply.downvotes || 0)}
                                         </Text>
                                               )}
                                               <Text style={[
@@ -1238,9 +1359,29 @@ export default function Forum() {
                                                 { fontSize: hp(1.3) },
                                                 userVotes[`${comment.id}-${reply.id}`] === 'up' && styles.commentLikeLabelActive
                                               ]}>
-                                                Like
+                                                Up
                                               </Text>
                                             </TouchableOpacity>
+                                        <TouchableOpacity
+                                              style={styles.commentLikeButton}
+                                          activeOpacity={0.7}
+                                          onPress={async () => {
+                                            await handleCommentVote(reply.id, comment.id, 'down')
+                                          }}
+                                        >
+                                          <ArrowDownCircle
+                                            size={hp(1.6)}
+                                            color={userVotes[`${comment.id}-${reply.id}`] === 'down' ? theme.statusColors.error : theme.colors.textSecondary}
+                                            strokeWidth={2}
+                                          />
+                                          <Text style={[
+                                            styles.commentLikeLabel,
+                                            { fontSize: hp(1.3) },
+                                            userVotes[`${comment.id}-${reply.id}`] === 'down' && styles.commentLikeLabelActive
+                                          ]}>
+                                            Down
+                                          </Text>
+                                        </TouchableOpacity>
                                         <TouchableOpacity
                                               style={styles.commentReplyButton}
                                           activeOpacity={0.7}
@@ -1287,7 +1428,7 @@ export default function Forum() {
                                     ) : (
                                       <Person
                                         size={hp(1.6)}
-                                        color={theme.colors.bondedPurple}
+                                        color={theme.colors.textSecondary}
                                         strokeWidth={2}
                                         style={{ marginRight: wp(1) }}
                                       />
@@ -1319,13 +1460,14 @@ export default function Forum() {
                                         !replyText.trim() && styles.replySubmitButtonDisabled,
                                       ]}
                                       activeOpacity={0.8}
-                                      onPress={() => {
+                                      onPress={async () => {
                                         if (!replyText.trim()) return
+                                        const body = replyText.trim()
                                         const newReply = {
                                           id: `reply-${comment.id}-${Date.now()}`,
                                           author: replyIsAnon ? 'Anon' : 'You',
                                           isAnon: replyIsAnon,
-                                          body: replyText.trim(),
+                                          body,
                                           upvotes: 0,
                                           downvotes: 0,
                                           timeAgo: 'now',
@@ -1341,6 +1483,17 @@ export default function Forum() {
                                         setReplyingTo(null)
                                         setReplyText('')
                                         setReplyIsAnon(true)
+                                        const success = await submitComment({
+                                          postId: activePost.id,
+                                          parentId: comment.id,
+                                          body,
+                                          isAnonymous: replyIsAnon,
+                                        })
+                                        if (success) {
+                                          setActivePost((prev) => (
+                                            prev ? { ...prev, commentsCount: (prev.commentsCount || 0) + 1 } : prev
+                                          ))
+                                        }
                                       }}
                                     >
                                       <Text style={styles.replySubmitText}>Reply</Text>
@@ -1411,13 +1564,15 @@ export default function Forum() {
                           !newCommentText.trim() && styles.commentSubmitButtonDisabled,
                         ]}
                         activeOpacity={0.8}
-                        onPress={() => {
+                        onPress={async () => {
                           if (!newCommentText.trim()) return
+                          const body = newCommentText.trim()
+                          const tempId = `temp-comment-${activePost.id}-${Date.now()}`
                           const newComment = {
-                            id: `comment-${activePost.id}-${Date.now()}`,
+                            id: tempId,
                             author: newCommentIsAnon ? 'Anon' : 'You',
                             isAnon: newCommentIsAnon,
-                            body: newCommentText.trim(),
+                            body,
                             upvotes: 0,
                             downvotes: 0,
                             timeAgo: 'now',
@@ -1427,16 +1582,29 @@ export default function Forum() {
                             ...prev,
                             [activePost.id]: [...(prev[activePost.id] || []), newComment],
                           }))
-                          setPosts((prev) =>
-                            prev.map((p) =>
-                              p.id === activePost.id
-                                ? { ...p, commentsCount: p.commentsCount + 1 }
-                                : p
-                            )
-                          )
+                          pendingCommentIds.current[activePost.id] = [
+                            ...(pendingCommentIds.current[activePost.id] || []),
+                            newComment,
+                          ]
                           setNewCommentText('')
                           setNewCommentIsAnon(true)
                           Keyboard.dismiss()
+                          const success = await submitComment({
+                            postId: activePost.id,
+                            body,
+                            isAnonymous: newCommentIsAnon,
+                            tempId,
+                          })
+                          if (!success) {
+                            pendingCommentIds.current[activePost.id] = (
+                              pendingCommentIds.current[activePost.id] || []
+                            ).filter((item) => item.id !== tempId)
+                          }
+                          if (success) {
+                            setActivePost((prev) => (
+                              prev ? { ...prev, commentsCount: (prev.commentsCount || 0) + 1 } : prev
+                            ))
+                          }
                         }}
                       >
                         <Text style={styles.commentSubmitText}>Post</Text>
@@ -1503,12 +1671,12 @@ export default function Forum() {
                       <View style={styles.profileMetaPill}>
                         <MessageCircle
                           size={hp(1.8)}
-                          color={theme.colors.bondedPurple}
+                          color={theme.colors.info}
                           strokeWidth={2}
                           style={{ marginRight: wp(1) }}
                         />
                         <Text style={styles.profileMetaPillText}>
-                          {activeAuthorPost.upvotes} karma
+                          {(activeAuthorPost.upvotes || 0) - (activeAuthorPost.downvotes || 0)} karma
                         </Text>
                       </View>
                     </View>
@@ -1552,6 +1720,73 @@ export default function Forum() {
           </Pressable>
         </Modal>
 
+        {/* Post Options Modal - Bottom Sheet Style */}
+        <Modal
+          visible={!!postOptionsPost}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setPostOptionsPost(null)}
+        >
+          <Pressable
+            style={styles.postOptionsOverlay}
+            onPress={() => setPostOptionsPost(null)}
+          >
+            <Pressable
+              style={styles.postOptionsBottomSheet}
+              onPress={(e) => e.stopPropagation()}
+            >
+              {postOptionsPost && (
+                <>
+                  {/* Drag Handle */}
+                  <View style={styles.postOptionsHandle} />
+                  
+                  {/* Options List */}
+                  <View style={styles.postOptionsList}>
+                    {postOptionsPost.userId === currentUser.id && (
+                      <TouchableOpacity
+                        style={styles.postOptionItem}
+                        onPress={() => {
+                          setPostOptionsPost(null)
+                          handleDeletePost(postOptionsPost)
+                        }}
+                        activeOpacity={0.6}
+                      >
+                        <Text style={styles.postOptionTextDanger}>
+                          Delete Post
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {postOptionsPost.userId !== currentUser.id && (
+                      <TouchableOpacity
+                        style={styles.postOptionItem}
+                        onPress={() => {
+                          setPostOptionsPost(null)
+                          // TODO: Implement report functionality
+                          Alert.alert('Report', 'Report functionality coming soon')
+                        }}
+                        activeOpacity={0.6}
+                      >
+                        <Text style={styles.postOptionText}>
+                          Report Post
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  
+                  {/* Cancel Button */}
+                  <TouchableOpacity
+                    style={styles.postOptionsCancel}
+                    onPress={() => setPostOptionsPost(null)}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={styles.postOptionsCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         {/* New Post Modal - Fizz Style */}
         <Modal
           visible={isCreateModalVisible}
@@ -1585,6 +1820,12 @@ export default function Forum() {
                   activeOpacity={0.8}
                   style={styles.fizzHeaderCenter}
                 >
+                  {/* Show current forum name */}
+                  {currentForum && (
+                    <Text style={[styles.fizzModalTitle, { fontSize: hp(1.4), color: theme.colors.textSecondary, marginBottom: hp(0.3) }]} numberOfLines={1}>
+                      {currentForum.name}
+                    </Text>
+                  )}
                   <View style={styles.fizzAnonymousRow}>
                     <View style={styles.fizzAnonymousIcon}>
                       <Person size={hp(2)} color={theme.colors.white} strokeWidth={2.5} />
@@ -1597,47 +1838,168 @@ export default function Forum() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  activeOpacity={0.9}
-                  onPress={() => {
+                  disabled={!draftBody.trim() || createPostMutation.isPending}
+                  onPress={async () => {
+                    console.log('Post button pressed')
+                    console.log('draftBody:', draftBody)
+                    console.log('currentForum:', currentForum)
+                    console.log('currentForumId:', currentForum?.id)
+                    console.log('forums available:', visibleForums.length)
+                    
                     if (!draftBody.trim()) {
+                      Alert.alert('Required', 'Please enter a post body')
                       setIsCreateModalVisible(false)
                       return
                     }
 
-                    const newPost = {
-                      id: `post-${Date.now()}`,
-                      author: draftIsAnon ? 'Anon' : 'You',
-                      isAnon: draftIsAnon,
-                      title: draftTitle.trim() || '',
-                      body: draftBody.trim(),
-                      forum: 'Main Forum',
-                      upvotes: 0,
-                      commentsCount: 0,
-                      timeAgo: 'now',
-                      media: draftMedia,
-                      tags: selectedTag ? [selectedTag] : [],
-                      repostsCount: 0,
+                    // Use the currently viewed forum - this should always be set
+                    let forumToUse = currentForum
+                    let forumIdToUse = currentForum?.id
+                    
+                    // If somehow currentForum is still null, try to get it from forums
+                    if (!forumToUse && visibleForums.length > 0) {
+                      // Auto-select default forum if none selected
+                      forumToUse = visibleForums.find(f => f.type === 'campus') || visibleForums[0]
+                      if (forumToUse) {
+                        console.log('Auto-selecting forum:', forumToUse.name, forumToUse.id)
+                        setCurrentForum(forumToUse)
+                        forumIdToUse = forumToUse.id
+                      }
                     }
+                    
+                    if (!forumIdToUse) {
+                      console.error('No forum selected and no forums available')
+                      Alert.alert('Error', 'Please select a forum first')
+                      return
+                    }
+                    
+                    console.log('Using forum for post:', forumToUse.name, forumIdToUse)
 
-                    setPosts((prev) => [newPost, ...prev])
-                    setDraftTitle('')
-                    setDraftBody('')
-                    setDraftIsAnon(true)
-                    setDraftMedia([])
-                    setSelectedTag(null)
-                    setIsCreateModalVisible(false)
+                    try {
+                      console.log('Creating post with data:', {
+                        forumId: forumIdToUse,
+                        body: draftBody.trim(),
+                        isAnonymous: draftIsAnon,
+                      })
+                      
+                      // Extract media URLs from draftMedia
+                      const mediaUrls = []
+                      
+                      // Prepare tags array
+                      const tags = draftTags.length > 0 
+                        ? draftTags 
+                        : (selectedTag ? [selectedTag] : [])
+
+                      // Create the post
+                      const result = await createPostMutation.mutateAsync({
+                        forumId: forumIdToUse,
+                        title: draftTitle.trim() || null,
+                        body: draftBody.trim(),
+                        tags,
+                        mediaUrls,
+                        isAnonymous: draftIsAnon,
+                        poll: draftPoll || null,
+                      })
+
+                      console.log('Post created successfully:', result)
+                      
+                      // Extract post and any poll error from result
+                      const createdPost = result?.post || result
+                      const pollError = result?.pollError
+
+                      // Show warning if poll creation failed
+                      if (pollError) {
+                        Alert.alert(
+                          'Poll Creation Issue',
+                          'Your post was created but the poll failed to attach. You can try creating a new post with the poll.',
+                          [{ text: 'OK' }]
+                        )
+                      }
+
+                      if (createdPost?.id && draftMedia.length > 0) {
+                        try {
+                          console.log('📸 Uploading media for post:', createdPost.id)
+                          const mediaPaths = await uploadPostMedia(createdPost.id)
+                          console.log('📸 Media paths:', mediaPaths)
+
+                          if (mediaPaths.length > 0) {
+                            const { error: updateError } = await supabase
+                              .from('posts')
+                              .update({ media_urls: mediaPaths })
+                              .eq('id', createdPost.id)
+
+                            if (updateError) {
+                              console.error('Failed to update post with media:', updateError)
+                            } else {
+                              console.log('✅ Post updated with media successfully')
+                              // Invalidate queries to show updated post with images
+                              // Invalidate all posts queries for the current forum
+                              queryClient.invalidateQueries({ queryKey: ['posts', currentForumId] })
+                              // Also invalidate any posts queries without filters
+                              queryClient.invalidateQueries({ queryKey: ['posts'] })
+                            }
+                          }
+                        } catch (mediaError) {
+                          console.error('Post media upload failed:', mediaError)
+                          Alert.alert(
+                            'Media Upload Failed',
+                            'Your post was created but the images failed to upload. You can try editing the post to add them again.'
+                          )
+                        }
+                      }
+
+                      // Reset form
+                      setDraftTitle('')
+                      setDraftBody('')
+                      setDraftIsAnon(true)
+                      setDraftMedia([])
+                      setDraftTags([])
+                      setSelectedTag(null)
+                      setDraftPoll(null)
+                      setIsCreateModalVisible(false)
+                    } catch (error) {
+                      console.error('Error creating post:', error)
+                      console.error('Error details:', JSON.stringify(error, null, 2))
+                      console.error('Error code:', error.code)
+                      console.error('Error message:', error.message)
+                      console.error('Error details:', error.details)
+                      
+                      let errorMessage = 'Failed to create post. Please try again.'
+                      if (error.message) {
+                        errorMessage = error.message
+                      } else if (error.details) {
+                        errorMessage = error.details
+                      } else if (error.code) {
+                        errorMessage = `Error ${error.code}: ${error.message || 'Failed to create post'}`
+                      }
+                      
+                      Alert.alert('Error Creating Post', errorMessage)
+                    }
                   }}
                   style={[
                     styles.fizzPostButton,
-                    !draftBody.trim() && styles.fizzPostButtonDisabled,
+                    (!draftBody.trim() || createPostMutation.isPending) && styles.fizzPostButtonDisabled,
                   ]}
                 >
-                  <Text style={styles.fizzPostButtonText}>Post</Text>
+                  <Text style={styles.fizzPostButtonText}>
+                    {createPostMutation.isPending ? 'Posting...' : 'Post'}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
               {/* Content Area */}
               <View style={styles.fizzContentArea}>
+                {/* Optional Title Input */}
+                <TextInput
+                  value={draftTitle}
+                  onChangeText={setDraftTitle}
+                  placeholder="Add a title (optional)"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={styles.fizzTitleInput}
+                  maxLength={100}
+                />
+                
+                {/* Body Input */}
                 <TextInput
                   value={draftBody}
                   onChangeText={setDraftBody}
@@ -1646,24 +2008,98 @@ export default function Forum() {
                   style={styles.fizzTextInput}
                   multiline
                   textAlignVertical="top"
-                  autoFocus
                 />
+                
+                {/* Draft Media Preview - Industry Standard Design */}
+                {draftMedia.length > 0 && (
+                  <View style={styles.draftMediaPreview}>
+                    {draftMedia.length === 1 ? (
+                      // Single image - full width, Instagram-style
+                      <View style={styles.draftMediaSingle}>
+                        <Image
+                          source={{ uri: draftMedia[0].uri }}
+                          style={styles.draftMediaSingleImage}
+                        />
+                        <TouchableOpacity
+                          style={styles.draftMediaRemoveSingle}
+                          onPress={() => setDraftMedia([])}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.draftMediaRemoveSingleButton}>
+                            <X size={hp(2.2)} color={theme.colors.white} strokeWidth={2.5} />
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    ) : draftMedia.length === 2 ? (
+                      // Two images - side by side with gap
+                      <View style={styles.draftMediaTwoGrid}>
+                        {draftMedia.map((media, index) => (
+                          <View key={index} style={styles.draftMediaTwoItem}>
+                            <Image
+                              source={{ uri: media.uri }}
+                              style={styles.draftMediaTwoImage}
+                            />
+                            <TouchableOpacity
+                              style={styles.draftMediaRemoveTwo}
+                              onPress={() => {
+                                setDraftMedia((prev) => prev.filter((_, i) => i !== index))
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <View style={styles.draftMediaRemoveTwoButton}>
+                                <X size={hp(1.9)} color={theme.colors.white} strokeWidth={2.5} />
+                              </View>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      // Three or more - clean grid layout
+                      <View style={styles.draftMediaGrid}>
+                        {draftMedia.slice(0, 4).map((media, index) => (
+                          <View key={index} style={styles.draftMediaGridItem}>
+                            <Image
+                              source={{ uri: media.uri }}
+                              style={styles.draftMediaGridImage}
+                            />
+                            {index === 3 && draftMedia.length > 4 && (
+                              <View style={styles.draftMediaMoreOverlay}>
+                                <Text style={styles.draftMediaMoreText}>+{draftMedia.length - 4}</Text>
+                              </View>
+                            )}
+                            <TouchableOpacity
+                              style={styles.draftMediaRemoveGrid}
+                              onPress={() => {
+                                setDraftMedia((prev) => prev.filter((_, i) => i !== index))
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <View style={styles.draftMediaRemoveGridButton}>
+                                <X size={hp(1.7)} color={theme.colors.white} strokeWidth={2.5} />
+                              </View>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
               </View>
 
               {/* Selected Tag Display - Moved above action bar */}
               {selectedTag && (() => {
                 const tagColors = {
-                  'QUESTION': '#007AFF',
-                  'CONFESSION': '#FF6B6B',
-                  'CRUSH': '#FF69B4',
-                  'DM ME': '#00CED1',
-                  'EVENT': '#FF9500',
-                  'PSA': '#FF3B30',
-                  'SHOUTOUT': '#34C759',
-                  'DUB': '#FFD700',
-                  'RIP': '#808080',
-                  'MEME': '#A45CFF',
-                  'LOST & FOUND': '#D2691E',
+                  'QUESTION': '#5B8DEF',
+                  'CONFESSION': '#FF7A8A',
+                  'CRUSH': '#FF8CC8',
+                  'DM ME': '#4DD0E1',
+                  'EVENT': '#FFB84D',
+                  'PSA': '#FF6B6B',
+                  'SHOUTOUT': '#4ECDC4',
+                  'DUB': '#FFD93D',
+                  'RIP': '#95A5A6',
+                  'MEME': '#A78BFA',
+                  'LOST & FOUND': '#E67E22',
                 }
                 const tagColor = tagColors[selectedTag] || theme.colors.bondedPurple
                 return (
@@ -1682,67 +2118,36 @@ export default function Forum() {
 
               {/* Action Bar - Above Keyboard */}
               <View style={styles.fizzActionBar}>
-                <TouchableOpacity
-                  style={styles.fizzTagButton}
-                  onPress={() => {
-                    Keyboard.dismiss()
-                    setShowTagSelector(true)
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.fizzTagButtonText}>+ Tag</Text>
-                </TouchableOpacity>
-
                 <View style={styles.fizzMediaIconsRow}>
                   <TouchableOpacity
                     style={styles.fizzMediaIcon}
                     onPress={() => handlePickMedia('image')}
                     activeOpacity={0.7}
                   >
-                    <ImageIcon size={hp(2.5)} color={theme.colors.textPrimary} strokeWidth={2} />
+                    <ImageIcon size={hp(2.8)} color={theme.colors.textPrimary} strokeWidth={2} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.fizzMediaIcon}
                     onPress={() => handlePickMedia('video')}
                     activeOpacity={0.7}
                   >
-                    <Video size={hp(2.5)} color={theme.colors.textPrimary} strokeWidth={2} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.fizzMediaIcon}
-                    onPress={() => {
-                      // TODO: Implement meme picker
-                      console.log('Meme picker - to be implemented')
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.fizzMemeText}>MEME</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.fizzMediaIcon}
-                    onPress={() => {
-                      // TODO: Implement GIF picker
-                      console.log('GIF picker - to be implemented')
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.fizzGifText}>GIF</Text>
+                    <Video size={hp(2.8)} color={theme.colors.textPrimary} strokeWidth={2} />
                   </TouchableOpacity>
                 </View>
               </View>
               {selectedTag && (() => {
                 const tagColors = {
-                  'QUESTION': '#007AFF',
-                  'CONFESSION': '#FF6B6B',
-                  'CRUSH': '#FF69B4',
-                  'DM ME': '#00CED1',
-                  'EVENT': '#FF9500',
-                  'PSA': '#FF3B30',
-                  'SHOUTOUT': '#34C759',
-                  'DUB': '#FFD700',
-                  'RIP': '#808080',
-                  'MEME': '#A45CFF',
-                  'LOST & FOUND': '#D2691E',
+                  'QUESTION': '#5B8DEF',
+                  'CONFESSION': '#FF7A8A',
+                  'CRUSH': '#FF8CC8',
+                  'DM ME': '#4DD0E1',
+                  'EVENT': '#FFB84D',
+                  'PSA': '#FF6B6B',
+                  'SHOUTOUT': '#4ECDC4',
+                  'DUB': '#FFD93D',
+                  'RIP': '#95A5A6',
+                  'MEME': '#A78BFA',
+                  'LOST & FOUND': '#E67E22',
                 }
                 const tagColor = tagColors[selectedTag] || theme.colors.bondedPurple
                 return (
@@ -1786,35 +2191,38 @@ export default function Forum() {
                         showsVerticalScrollIndicator={false}
                       >
                 {[
-                  { label: 'QUESTION', color: '#007AFF' },
-                  { label: 'CONFESSION', color: '#FF6B6B' },
-                  { label: 'CRUSH', color: '#FF69B4' },
-                  { label: 'DM ME', color: '#00CED1' },
-                  { label: 'EVENT', color: '#FF9500' },
-                  { label: 'PSA', color: '#FF3B30' },
-                  { label: 'SHOUTOUT', color: '#34C759' },
-                  { label: 'DUB', color: '#FFD700' },
-                  { label: 'RIP', color: '#808080' },
-                  { label: 'MEME', color: '#A45CFF' },
-                  { label: 'LOST & FOUND', color: '#D2691E' },
+                  { label: 'QUESTION', color: '#5B8DEF', gradient: ['#5B8DEF', '#4A7CE8'] },
+                  { label: 'CONFESSION', color: '#FF7A8A', gradient: ['#FF7A8A', '#FF6B7D'] },
+                  { label: 'CRUSH', color: '#FF8CC8', gradient: ['#FF8CC8', '#FF7BB8'] },
+                  { label: 'DM ME', color: '#4DD0E1', gradient: ['#4DD0E1', '#3BC5D6'] },
+                  { label: 'EVENT', color: '#FFB84D', gradient: ['#FFB84D', '#FFA733'] },
+                  { label: 'PSA', color: '#FF6B6B', gradient: ['#FF6B6B', '#FF5555'] },
+                  { label: 'SHOUTOUT', color: '#4ECDC4', gradient: ['#4ECDC4', '#3DBBB3'] },
+                  { label: 'DUB', color: '#FFD93D', gradient: ['#FFD93D', '#FFD024'] },
+                  { label: 'RIP', color: '#95A5A6', gradient: ['#95A5A6', '#839496'] },
+                  { label: 'MEME', color: '#A78BFA', gradient: ['#A78BFA', '#9675F5'] },
+                  { label: 'LOST & FOUND', color: '#E67E22', gradient: ['#E67E22', '#D35400'] },
                 ].map((tag) => (
                   <TouchableOpacity
                     key={tag.label}
-                            style={[
-                              styles.fizzTagPill,
-                              { 
-                                backgroundColor: tag.color,
-                                borderWidth: selectedTag === tag.label ? 2 : 0,
-                                borderColor: theme.colors.textPrimary,
-                              }
-                            ]}
+                    style={[
+                      styles.fizzTagPill,
+                      selectedTag === tag.label && styles.fizzTagPillSelected,
+                    ]}
                     onPress={() => {
                       setSelectedTag(tag.label)
                       setShowTagSelector(false)
                     }}
-                    activeOpacity={0.8}
+                    activeOpacity={0.85}
                   >
-                    <Text style={styles.fizzTagPillText}>{tag.label}</Text>
+                    <LinearGradient
+                      colors={tag.gradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.fizzTagGradient}
+                    >
+                      <Text style={styles.fizzTagPillText}>{tag.label}</Text>
+                    </LinearGradient>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -1943,7 +2351,30 @@ export default function Forum() {
         {/* Floating Create Post Button */}
         <TouchableOpacity
           style={styles.floatingCreateButton}
-          onPress={() => setIsCreateModalVisible(true)}
+          onPress={() => {
+            // Check onboarding completion
+            if (!userProfile?.onboarding_complete) {
+              Alert.alert(
+                'Complete Your Profile',
+                `Please complete your onboarding to create posts. You're ${userProfile?.profile_completion_percentage || 0}% done!`,
+                [
+                  { text: 'Later', style: 'cancel' },
+                  { text: 'Complete Now', onPress: () => router.push('/onboarding') },
+                ]
+              )
+              return
+            }
+            
+            // Ensure we have a forum selected before opening modal
+            if (!currentForum && visibleForums.length > 0) {
+              const mainForum = visibleForums.find(f => f.type === 'campus') || visibleForums[0]
+              if (mainForum) {
+                console.log('Setting forum before opening modal:', mainForum.name, mainForum.id)
+                setCurrentForum(mainForum)
+              }
+            }
+            setIsCreateModalVisible(true)
+          }}
           activeOpacity={0.8}
         >
           <Add size={hp(2.5)} color={theme.colors.white} strokeWidth={2.5} />
@@ -1951,19 +2382,91 @@ export default function Forum() {
 
         <BottomNav scrollY={scrollY} />
 
+        {/* Campus Selector Modal (Super Admin) */}
+        <Modal
+          visible={isCampusSelectorVisible}
+          transparent
+          animationType="slide"
+          presentationStyle="overFullScreen"
+          onRequestClose={() => setIsCampusSelectorVisible(false)}
+        >
+          <Pressable
+            style={styles.campusModalOverlay}
+            onPress={() => setIsCampusSelectorVisible(false)}
+          >
+            <Pressable
+              style={styles.campusModalContent}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.campusModalHeader}>
+                <Text style={styles.campusModalTitle}>Select Campus</Text>
+                <TouchableOpacity
+                  onPress={() => setIsCampusSelectorVisible(false)}
+                  style={styles.modalCloseButton}
+                >
+                  <X size={hp(2.4)} color={theme.colors.textPrimary} strokeWidth={2.5} />
+                </TouchableOpacity>
+              </View>
+
+              {universitiesLoading ? (
+                <View style={styles.campusModalEmpty}>
+                  <Text style={styles.campusModalEmptyText}>Loading campuses...</Text>
+                </View>
+              ) : universities.length === 0 ? (
+                <View style={styles.campusModalEmpty}>
+                  <Text style={styles.campusModalEmptyText}>No campuses found</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={universities}
+                  keyExtractor={(item) => item.id}
+                  contentContainerStyle={styles.campusModalList}
+                  renderItem={({ item }) => {
+                    const isSelected = item.id === selectedUniversityId
+                    return (
+                      <TouchableOpacity
+                        style={[
+                          styles.campusModalItem,
+                          isSelected && styles.campusModalItemActive,
+                        ]}
+                        onPress={() => {
+                          setSelectedUniversityId(item.id)
+                          setIsCampusSelectorVisible(false)
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            styles.campusModalItemText,
+                            isSelected && styles.campusModalItemTextActive,
+                          ]}
+                        >
+                          {item.name}
+                        </Text>
+                        {!!item.domain && (
+                          <Text style={styles.campusModalItemSubtext}>
+                            {item.domain}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    )
+                  }}
+                />
+              )}
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         {/* Forum Selector Modal */}
         <ForumSelectorModal
           visible={isForumSelectorVisible}
-          forums={MOCK_FORUMS}
+          forums={visibleForums}
           currentForumId={currentForumId}
           onSelectForum={(forum) => {
             setCurrentForum(forum)
             // Filter posts by forum if needed
           }}
           onClose={() => setIsForumSelectorVisible(false)}
-          onCreateForum={() => {
-            router.push('/create-forum')
-          }}
         />
 
         {/* Repost Modal */}
@@ -1974,15 +2477,10 @@ export default function Forum() {
             setShowRepostModal(false)
             setRepostPost(null)
           }}
-          onRepost={(repostData) => {
-            // Update post repost count
-            setPosts((prev) =>
-              prev.map((p) =>
-                p.id === repostData.postId
-                  ? { ...p, repostsCount: (p.repostsCount || 0) + 1 }
-                  : p
-              )
-            )
+          onRepost={async (repostData) => {
+            // TODO: Save repost to Supabase
+            // For now, refetch to get updated repost count
+            await refetchPosts()
             // TODO: Save repost to backend
             console.log('Reposting:', repostData)
           }}
@@ -1991,6 +2489,28 @@ export default function Forum() {
       </View>
     </SafeAreaView>
   )
+}
+
+function getTimeAgo(dateString) {
+  if (!dateString) return 'Just now'
+
+  const now = new Date()
+  const date = new Date(dateString)
+  const diffMs = now - date
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m`
+  if (diffHours < 24) return `${diffHours}h`
+  if (diffDays < 7) return `${diffDays}d`
+
+  const diffWeeks = Math.floor(diffDays / 7)
+  if (diffWeeks < 4) return `${diffWeeks}w`
+
+  const diffMonths = Math.floor(diffDays / 30)
+  return `${diffMonths}mo`
 }
 
 const createStyles = (theme) => StyleSheet.create({
@@ -2078,7 +2598,7 @@ const createStyles = (theme) => StyleSheet.create({
   clearButtonText: {
     fontSize: hp(1.4),
     fontFamily: theme.typography.fontFamily.body,
-    color: theme.colors.bondedPurple,
+    color: theme.colors.textSecondary,
     fontWeight: '600',
   },
   createPostIconButton: {
@@ -2182,13 +2702,13 @@ const createStyles = (theme) => StyleSheet.create({
     borderRadius: wp(6.5),
     backgroundColor: theme.colors.background,
     borderWidth: 2.5,
-    borderColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: hp(0.8),
     ...Platform.select({
       ios: {
-        shadowColor: theme.colors.bondedPurple,
+        shadowColor: theme.mode === 'dark' ? '#000' : '#718096',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.2,
         shadowRadius: 6,
@@ -2203,7 +2723,7 @@ const createStyles = (theme) => StyleSheet.create({
   },
   storyAvatarText: {
     fontSize: hp(2.2),
-    color: theme.colors.bondedPurple,
+    color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.heading,
     fontWeight: '700',
   },
@@ -2492,13 +3012,23 @@ const createStyles = (theme) => StyleSheet.create({
     paddingTop: hp(1.5),
     paddingBottom: hp(1),
   },
+  fizzTitleInput: {
+    fontSize: hp(2.2),
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: '600',
+    color: theme.colors.textPrimary,
+    paddingBottom: hp(1),
+    marginBottom: hp(1),
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
   fizzTextInput: {
     flex: 1,
     fontSize: hp(1.9),
     fontFamily: theme.typography.fontFamily.body,
     color: theme.colors.textPrimary,
-    minHeight: hp(20),
-    maxHeight: hp(50),
+    minHeight: hp(15),
+    maxHeight: hp(40),
   },
   fizzActionBar: {
     flexDirection: 'row',
@@ -2511,42 +3041,16 @@ const createStyles = (theme) => StyleSheet.create({
     minHeight: hp(6),
     backgroundColor: theme.colors.background,
   },
-  fizzTagButton: {
-    paddingVertical: hp(0.8),
-    paddingHorizontal: wp(3),
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.backgroundSecondary,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.colors.border,
-  },
-  fizzTagButtonText: {
-    fontSize: hp(1.5),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-  },
   fizzMediaIconsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: wp(3),
+    gap: wp(4),
   },
   fizzMediaIcon: {
     width: hp(4),
     height: hp(4),
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  fizzMemeText: {
-    fontSize: hp(1.3),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-  },
-  fizzGifText: {
-    fontSize: hp(1.3),
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
   },
   fizzSelectedTag: {
     flexDirection: 'row',
@@ -2594,22 +3098,22 @@ const createStyles = (theme) => StyleSheet.create({
   },
   tagSelectorOverlayBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   tagSelectorOverlayContent: {
-    width: wp(85),
-    maxHeight: hp(70),
+    width: wp(90),
+    maxHeight: hp(75),
     backgroundColor: theme.colors.background,
-    borderRadius: theme.radius.xl,
-    padding: wp(5),
+    borderRadius: theme.radius.xxl,
+    padding: theme.spacing.xl,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.25,
-        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.3,
+        shadowRadius: 32,
       },
       android: {
         elevation: 24,
@@ -2648,20 +3152,21 @@ const createStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: hp(2.5),
-    paddingBottom: hp(1.5),
+    marginBottom: theme.spacing.lg,
+    paddingBottom: theme.spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.colors.border,
   },
   tagModalTitle: {
-    fontSize: hp(2.2),
+    fontSize: theme.typography.sizes.xl,
     fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '700',
+    fontWeight: theme.typography.weights.bold,
     color: theme.colors.textPrimary,
+    letterSpacing: -0.3,
   },
   tagModalCloseButton: {
-    width: hp(4),
-    height: hp(4),
+    width: hp(4.5),
+    height: hp(4.5),
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: theme.radius.full,
@@ -2671,23 +3176,51 @@ const createStyles = (theme) => StyleSheet.create({
     maxHeight: hp(55),
   },
   tagListContent: {
-    gap: hp(1.2),
-    paddingBottom: hp(1),
+    gap: theme.spacing.md,
+    paddingBottom: theme.spacing.md,
   },
   fizzTagPill: {
-    paddingVertical: hp(1.5),
-    paddingHorizontal: wp(5),
-    borderRadius: theme.radius.lg,
+    borderRadius: theme.radius.xl,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  fizzTagPillSelected: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+    transform: [{ scale: 1.02 }],
+  },
+  fizzTagGradient: {
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.xl,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: hp(5),
+    minHeight: hp(4.5),
   },
   fizzTagPillText: {
-    fontSize: hp(1.6),
+    fontSize: theme.typography.sizes.base,
     fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '700',
+    fontWeight: theme.typography.weights.semibold,
     color: theme.colors.white,
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   postAsOverlay: {
     position: 'absolute',
@@ -2838,13 +3371,13 @@ const createStyles = (theme) => StyleSheet.create({
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.background,
     borderWidth: 1.5,
-    borderColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tagPollToggleButtonActive: {
     backgroundColor: theme.colors.bondedPurple,
-    borderColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.border,
   },
   tagsSection: {
     paddingHorizontal: wp(4),
@@ -2919,26 +3452,32 @@ const createStyles = (theme) => StyleSheet.create({
     lineHeight: hp(2.6),
     marginBottom: hp(2),
   },
+  commentsSection: {
+    marginTop: hp(2),
+    paddingTop: hp(2),
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
   commentsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: hp(1),
+    marginBottom: hp(2),
   },
   commentsTitle: {
-    fontSize: hp(1.9),
-    fontWeight: '600',
+    fontSize: hp(1.8),
+    fontWeight: '700',
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.heading,
   },
   commentsCount: {
-    fontSize: hp(1.5),
+    fontSize: hp(1.6),
+    fontWeight: '400',
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
-    opacity: 0.8,
   },
   commentsList: {
-    gap: hp(1.5),
+    gap: hp(2),
   },
   commentCard: {
     flexDirection: 'row',
@@ -3152,35 +3691,24 @@ const createStyles = (theme) => StyleSheet.create({
   },
   newCommentContainer: {
     padding: wp(4),
-    paddingTop: hp(1.5),
-    paddingBottom: hp(2),
+    paddingTop: hp(1.2),
+    paddingBottom: hp(1.5),
     backgroundColor: theme.colors.background,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
   },
   newCommentInput: {
-    fontSize: hp(1.7),
+    fontSize: hp(1.6),
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fontFamily.body,
     backgroundColor: theme.colors.backgroundSecondary,
-    borderRadius: hp(1.2),
+    borderRadius: theme.radius.lg,
     paddingHorizontal: wp(4),
-    paddingVertical: hp(1.2),
-    minHeight: hp(6),
-    maxHeight: hp(12),
+    paddingVertical: hp(1),
+    minHeight: hp(5),
+    maxHeight: hp(10),
     marginBottom: hp(1),
-    textAlignVertical: 'top',
+    textAlignVertical: 'center',
   },
   newCommentActions: {
     flexDirection: 'row',
@@ -3194,7 +3722,7 @@ const createStyles = (theme) => StyleSheet.create({
     borderRadius: theme.radius.pill,
     ...Platform.select({
       ios: {
-        shadowColor: theme.colors.bondedPurple,
+        shadowColor: theme.mode === 'dark' ? '#000' : '#718096',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.25,
         shadowRadius: 6,
@@ -3222,7 +3750,7 @@ const createStyles = (theme) => StyleSheet.create({
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.background,
     borderWidth: 1,
-    borderColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.border,
   },
   anonPillActiveSmall: {
     backgroundColor: theme.colors.bondedPurple,
@@ -3230,7 +3758,7 @@ const createStyles = (theme) => StyleSheet.create({
   },
   anonPillTextSmall: {
     fontSize: hp(1.4),
-    color: theme.colors.bondedPurple,
+    color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
   },
@@ -3356,7 +3884,7 @@ const createStyles = (theme) => StyleSheet.create({
   },
   profileSecondaryText: {
     fontSize: hp(1.8),
-    color: theme.colors.bondedPurple,
+    color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
   },
@@ -3417,7 +3945,7 @@ const createStyles = (theme) => StyleSheet.create({
   },
   mediaButtonText: {
     fontSize: hp(1.6),
-    color: theme.colors.bondedPurple,
+    color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
   },
@@ -3441,16 +3969,16 @@ const createStyles = (theme) => StyleSheet.create({
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.background,
     borderWidth: 1.5,
-    borderColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.border,
     gap: wp(1.5),
   },
   optionalFeatureButtonActive: {
     backgroundColor: theme.colors.bondedPurple,
-    borderColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.border,
   },
   optionalFeatureButtonText: {
     fontSize: hp(1.5),
-    color: theme.colors.bondedPurple,
+    color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
   },
@@ -3504,7 +4032,7 @@ const createStyles = (theme) => StyleSheet.create({
   anonPill: {
     backgroundColor: theme.colors.backgroundSecondary,
     borderWidth: 1,
-    borderColor: theme.colors.bondedPurple,
+    borderColor: theme.colors.border,
   },
   anonPillActive: {
     backgroundColor: theme.colors.bondedPurple,
@@ -3519,32 +4047,253 @@ const createStyles = (theme) => StyleSheet.create({
     fontFamily: theme.typography.fontFamily.body,
     opacity: 0.8,
   },
-  draftMediaItem: {
-    marginRight: wp(2),
+  draftMediaPreview: {
+    marginTop: hp(2),
+    paddingHorizontal: wp(4),
   },
-  draftMediaImage: {
-    width: wp(16),
-    height: wp(16),
-    borderRadius: theme.radius.md,
+  // Single image - full width, large preview
+  // Single image - full width, Instagram/Twitter style
+  draftMediaSingle: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: hp(1.2),
+    overflow: 'hidden',
+    backgroundColor: theme.colors.border || '#E5E5E5',
+    position: 'relative',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border || '#E5E5E5',
+  },
+  draftMediaSingleImage: {
+    width: '100%',
+    height: '100%',
     resizeMode: 'cover',
   },
-  draftMediaVideo: {
-    width: wp(16),
-    height: wp(16),
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.charcoal,
+  draftMediaRemoveSingle: {
+    position: 'absolute',
+    top: hp(1.2),
+    right: hp(1.2),
+    zIndex: 10,
+  },
+  draftMediaRemoveSingleButton: {
+    width: hp(3.2),
+    height: hp(3.2),
+    borderRadius: hp(1.6),
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     alignItems: 'center',
     justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  // Two images - side by side with gap
+  draftMediaTwoGrid: {
+    flexDirection: 'row',
+    gap: wp(1.5),
+  },
+  draftMediaTwoItem: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: hp(1.2),
+    overflow: 'hidden',
+    backgroundColor: theme.colors.border || '#E5E5E5',
+    position: 'relative',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border || '#E5E5E5',
+  },
+  draftMediaTwoImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  draftMediaRemoveTwo: {
+    position: 'absolute',
+    top: hp(1),
+    right: hp(1),
+    zIndex: 10,
+  },
+  draftMediaRemoveTwoButton: {
+    width: hp(2.8),
+    height: hp(2.8),
+    borderRadius: hp(1.4),
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  // Grid layout for 3+ images
+  draftMediaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: wp(1.5),
+  },
+  draftMediaGridItem: {
+    width: (wp(100) - wp(8) - wp(1.5)) / 2, // Screen width - padding - gap, divided by 2
+    aspectRatio: 1,
+    borderRadius: hp(1.2),
+    overflow: 'hidden',
+    backgroundColor: theme.colors.border || '#E5E5E5',
+    position: 'relative',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border || '#E5E5E5',
+  },
+  draftMediaGridImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  draftMediaMoreOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  draftMediaMoreText: {
+    fontSize: hp(2.8),
+    fontWeight: '700',
+    color: theme.colors.white,
+    letterSpacing: 0.5,
+  },
+  draftMediaRemoveGrid: {
+    position: 'absolute',
+    top: hp(0.8),
+    right: hp(0.8),
+    zIndex: 10,
+  },
+  draftMediaRemoveGridButton: {
+    width: hp(2.6),
+    height: hp(2.6),
+    borderRadius: hp(1.3),
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.white,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: hp(20),
+  },
+  loadingText: {
+    fontSize: theme.typography.sizes.lg,
+    fontFamily: theme.typography.fontFamily.body,
+    color: theme.colors.textSecondary,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: hp(20),
+    paddingHorizontal: theme.spacing.lg,
+  },
+  errorText: {
+    fontSize: theme.typography.sizes.lg,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.error || '#ef4444',
+    textAlign: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  retryButton: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: theme.colors.primary || theme.colors.bondedPurple,
+    borderRadius: theme.radius.md,
+  },
+  retryButtonText: {
+    fontSize: theme.typography.sizes.base,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.white,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: hp(20),
+    paddingHorizontal: theme.spacing.lg,
+  },
+  emptyStateText: {
+    fontSize: theme.typography.sizes.lg,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.semibold,
+    color: theme.colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: hp(2),
+  },
+  createFirstPostButton: {
+    paddingHorizontal: wp(8),
+    paddingVertical: hp(1.2),
+    borderRadius: hp(1.5),
+    marginTop: hp(1),
+  },
+  createFirstPostButtonText: {
+    fontSize: hp(1.6),
+    color: '#FFFFFF',
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: theme.typography.weights.semibold,
+  },
+  draftMediaPreview: {
+    marginTop: hp(1.5),
+    paddingHorizontal: wp(4),
+  },
+  draftMediaScroll: {
+    flexDirection: 'row',
   },
   draftMediaRemove: {
     position: 'absolute',
     top: -hp(0.8),
     right: -hp(0.8),
   },
+  draftMediaRemoveButton: {
+    width: hp(2.5),
+    height: hp(2.5),
+    borderRadius: hp(1.25),
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.white,
+  },
   tagFilterRow: {
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(0.5),
-    gap: wp(1.5),
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.xs,
+    gap: theme.spacing.sm,
   },
   tagFilterChip: {
     marginRight: wp(2),
@@ -3567,7 +4316,7 @@ const createStyles = (theme) => StyleSheet.create({
   },
   addPollText: {
     fontSize: hp(1.6),
-    color: theme.colors.bondedPurple,
+    color: theme.colors.textSecondary,
     fontFamily: theme.typography.fontFamily.body,
     fontWeight: '600',
   },
@@ -3576,29 +4325,8 @@ const createStyles = (theme) => StyleSheet.create({
     alignItems: 'center',
     gap: wp(2),
   },
-  sortButtons: {
-    flexDirection: 'row',
-    gap: wp(1),
-    marginLeft: wp(2),
-  },
-  sortButton: {
-    paddingHorizontal: wp(2.5),
-    paddingVertical: hp(0.5),
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.backgroundSecondary,
-  },
-  sortButtonActive: {
-    backgroundColor: theme.colors.bondedPurple,
-  },
-  sortButtonText: {
-    fontSize: hp(1.3),
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fontFamily.body,
-    fontWeight: '500',
-  },
-  sortButtonTextActive: {
-    color: theme.colors.white,
-    fontWeight: '600',
+  sortSegmented: {
+    marginLeft: theme.spacing.sm,
   },
   floatingCreateButton: {
     position: 'absolute',
@@ -3624,6 +4352,192 @@ const createStyles = (theme) => StyleSheet.create({
       },
     }),
   },
+  campusSelectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(1.2),
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.12)',
+    paddingHorizontal: wp(2.2),
+    paddingVertical: hp(0.6),
+    borderRadius: hp(1.8),
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+  },
+  campusSelectorText: {
+    fontSize: hp(1.3),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+    maxWidth: wp(28),
+  },
+  campusModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-end',
+  },
+  campusModalContent: {
+    backgroundColor: theme.colors.background,
+    borderTopLeftRadius: hp(2),
+    borderTopRightRadius: hp(2),
+    paddingHorizontal: wp(4),
+    paddingTop: hp(2),
+    paddingBottom: hp(3),
+    maxHeight: hp(60),
+  },
+  campusModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: hp(1.5),
+  },
+  campusModalTitle: {
+    fontSize: hp(2),
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: '700',
+  },
+  campusModalList: {
+    paddingBottom: hp(2),
+  },
+  campusModalItem: {
+    paddingVertical: hp(1.2),
+    paddingHorizontal: wp(3),
+    borderRadius: hp(1.6),
+    marginBottom: hp(1),
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  campusModalItemActive: {
+    borderColor: theme.colors.bondedPurple,
+    backgroundColor: 'rgba(123, 97, 255, 0.08)',
+  },
+  campusModalItemText: {
+    fontSize: hp(1.6),
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+  },
+  campusModalItemTextActive: {
+    color: theme.colors.bondedPurple,
+  },
+  campusModalItemSubtext: {
+    marginTop: hp(0.4),
+    fontSize: hp(1.3),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+  },
+  campusModalEmpty: {
+    paddingVertical: hp(4),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  campusModalEmptyText: {
+    fontSize: hp(1.5),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+  },
+  emptyForumState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: wp(10),
+  },
+  emptyForumStateTitle: {
+    fontSize: hp(2.2),
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.heading,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: hp(1),
+  },
+  emptyForumStateText: {
+    fontSize: hp(1.5),
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fontFamily.body,
+    textAlign: 'center',
+    marginBottom: hp(2),
+  },
+  emptyForumStateButton: {
+    paddingHorizontal: wp(6),
+    paddingVertical: hp(1.1),
+    borderRadius: hp(2.4),
+    backgroundColor: theme.colors.bondedPurple,
+  },
+  emptyForumStateButtonText: {
+    fontSize: hp(1.5),
+    color: theme.colors.white,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '700',
+  },
+  postOptionsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  postOptionsBottomSheet: {
+    backgroundColor: theme.colors.surface,
+    borderTopLeftRadius: hp(2.5),
+    borderTopRightRadius: hp(2.5),
+    paddingBottom: hp(2),
+    paddingTop: hp(1),
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+      },
+      android: {
+        elevation: 16,
+      },
+    }),
+  },
+  postOptionsHandle: {
+    width: wp(12),
+    height: hp(0.5),
+    backgroundColor: theme.colors.border || 'rgba(0, 0, 0, 0.2)',
+    borderRadius: hp(0.25),
+    alignSelf: 'center',
+    marginBottom: hp(1.5),
+  },
+  postOptionsList: {
+    paddingHorizontal: wp(4),
+    paddingVertical: hp(0.5),
+  },
+  postOptionItem: {
+    paddingVertical: hp(1.8),
+    paddingHorizontal: wp(4),
+    borderRadius: hp(1),
+    marginBottom: hp(0.5),
+    backgroundColor: theme.colors.backgroundSecondary || 'rgba(0, 0, 0, 0.03)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postOptionText: {
+    fontSize: hp(1.9),
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '500',
+  },
+  postOptionTextDanger: {
+    fontSize: hp(1.9),
+    color: theme.colors.error || '#FF3B30',
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+  },
+  postOptionsCancel: {
+    marginTop: hp(1),
+    marginHorizontal: wp(4),
+    paddingVertical: hp(1.8),
+    borderRadius: hp(1),
+    backgroundColor: theme.colors.backgroundSecondary || 'rgba(0, 0, 0, 0.03)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postOptionsCancelText: {
+    fontSize: hp(1.9),
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fontFamily.body,
+    fontWeight: '600',
+  },
 })
-
-

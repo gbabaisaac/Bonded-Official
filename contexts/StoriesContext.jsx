@@ -1,5 +1,6 @@
-import React, { createContext, useState, useContext, useEffect } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import { fetchUnsplashPhoto } from '../services/unsplashService'
+import { useAuthStore } from '../stores/authStore'
 
 const StoriesContext = createContext()
 
@@ -23,7 +24,11 @@ const STORY_SEARCH_TERMS = [
 ]
 
 // Generate mock stories for testing
+// TODO: Replace with bonded-media uploads + public.media inserts (canonical media flow).
+// Mock data removed - using real Supabase data
 const generateMockStories = async () => {
+  // Return empty - stories come from Supabase
+  return []
   const now = new Date()
   const stories = {}
   
@@ -136,12 +141,21 @@ const generateMockStories = async () => {
 }
 
 export function StoriesProvider({ children }) {
-  // Initialize with mock stories - will be populated asynchronously
+  // Initialize with empty stories - will be populated asynchronously
   const [forumStories, setForumStories] = useState({})
-  const [isLoadingStories, setIsLoadingStories] = useState(true)
+  const [isLoadingStories, setIsLoadingStories] = useState(false)
+  
+  // Check if user is authenticated
+  const { user } = useAuthStore()
 
-  // Load stories asynchronously on mount
+  // Load stories asynchronously on mount ONLY if user is authenticated
   useEffect(() => {
+    if (!user) {
+      // User not authenticated - don't load stories
+      setIsLoadingStories(false)
+      return
+    }
+
     const loadStories = async () => {
       try {
         setIsLoadingStories(true)
@@ -156,7 +170,7 @@ export function StoriesProvider({ children }) {
       }
     }
     loadStories()
-  }, [])
+  }, [user])
 
   const [userStories, setUserStories] = useState([])
   const [viewedStories, setViewedStories] = useState(new Set())
@@ -274,4 +288,3 @@ export const useStoriesContext = () => {
   }
   return context
 }
-

@@ -182,7 +182,9 @@ export default function StoryCreator({ visible, forumId, forumName, onClose, onC
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>Create Story</Text>
-            <Text style={styles.headerSubtitle}>{forumName}</Text>
+            <Text style={styles.headerSubtitle}>
+              {typeof forumName === 'string' ? forumName : forumName?.name || 'Forum'}
+            </Text>
           </View>
           <View style={styles.headerButton} />
         </View>
@@ -262,8 +264,8 @@ const createStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: wp(4),
-    paddingVertical: hp(1.5),
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
     position: 'absolute',
     top: 0,
     left: 0,
@@ -278,17 +280,17 @@ const createStyles = (theme) => StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: hp(1.9),
+    fontSize: theme.typography.sizes.lg,
     color: theme.colors.white,
     fontFamily: theme.typography.fontFamily.heading,
-    fontWeight: '700',
+    fontWeight: theme.typography.weights.bold,
   },
   headerSubtitle: {
-    fontSize: hp(1.4),
+    fontSize: theme.typography.sizes.sm,
     color: theme.colors.white,
     fontFamily: theme.typography.fontFamily.body,
-    opacity: 0.8,
-    marginTop: hp(0.2),
+    opacity: theme.ui.metaOpacity,
+    marginTop: theme.spacing.xs,
   },
   camera: {
     flex: 1,
@@ -309,13 +311,13 @@ const createStyles = (theme) => StyleSheet.create({
   },
   bottomControls: {
     position: 'absolute',
-    bottom: hp(4),
+    bottom: theme.spacing.xl,
     left: 0,
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: wp(10),
+    paddingHorizontal: theme.spacing.xxxl,
   },
   galleryButton: {
     width: hp(6),

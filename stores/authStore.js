@@ -2,6 +2,15 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
+// Helper to clear persisted auth data
+const clearAuthStorage = async () => {
+  try {
+    await AsyncStorage.removeItem('auth-storage')
+  } catch (error) {
+    console.warn('Error clearing auth storage:', error)
+  }
+}
+
 // Initial state - all auth-related data starts empty/null
 const initialState = {
   // User data
@@ -44,8 +53,12 @@ export const useAuthStore = create(
 
       setCampusInfo: (campusId, campusDomain) => set({ campusId, campusDomain }),
 
-      // Logout: Reset everything to initial state
-      logout: () => set(initialState),
+      // Logout: Reset everything to initial state and clear persisted storage
+      logout: async () => {
+        set(initialState)
+        // Also explicitly clear AsyncStorage to ensure no stale data
+        await clearAuthStorage()
+      },
     }),
     {
       // Step 6: Persistence middleware

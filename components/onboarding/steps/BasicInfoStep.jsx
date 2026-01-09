@@ -1,15 +1,19 @@
-import { View, Text, StyleSheet, ScrollView } from 'react-native'
-import React, { useState, useMemo } from 'react'
-import Picker from '../../Picker'
-import Button from '../../Button'
-import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
-import { US_SCHOOLS } from '../../../constants/schools'
+import React, { useEffect, useMemo, useState } from 'react'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { ONBOARDING_THEME } from '../../../constants/onboardingTheme'
+import { US_SCHOOLS } from '../../../constants/schools'
 import { hp, wp } from '../../../helpers/common'
+import { ONBOARDING_STEPS } from '../../../stores/onboardingStore'
+import { supabase } from '../../../lib/supabase'
+import Input from '../../Input'
+import Picker from '../../Picker'
 
 const BasicInfoStep = ({ formData, updateFormData, onScroll }) => {
   const styles = createStyles(ONBOARDING_THEME)
   const [localData, setLocalData] = useState({
+    fullName: formData.fullName || '',
+    username: formData.username || '',
     school: formData.school || null,
     age: formData.age || null,
     grade: formData.grade || '',
@@ -17,15 +21,115 @@ const BasicInfoStep = ({ formData, updateFormData, onScroll }) => {
     major: formData.major || '',
   })
 
+  const [usernameValidation, setUsernameValidation] = useState({
+    isChecking: false,
+    isValid: false,
+    message: '',
+  })
+
+  // Username validation
+  const validateUsername = (username) => {
+    if (!username) {
+      return { isValid: false, message: '' }
+    }
+
+    // Check length (3-20 characters)
+    if (username.length < 3) {
+      return { isValid: false, message: 'Username must be at least 3 characters' }
+    }
+    if (username.length > 20) {
+      return { isValid: false, message: 'Username must be less than 20 characters' }
+    }
+
+    // Check format: only letters, numbers, and underscores
+    const usernameRegex = /^[a-zA-Z0-9_]+$/
+    if (!usernameRegex.test(username)) {
+      return { isValid: false, message: 'Only letters, numbers, and underscores allowed' }
+    }
+
+    // Check if starts with a letter
+    if (!/^[a-zA-Z]/.test(username)) {
+      return { isValid: false, message: 'Username must start with a letter' }
+    }
+
+    return { isValid: true, message: '' }
+  }
+
+  // Check username availability with debounce
+  useEffect(() => {
+    const checkUsernameAvailability = async () => {
+      const username = localData.username.trim()
+
+      if (!username) {
+        setUsernameValidation({ isChecking: false, isValid: false, message: '' })
+        return
+      }
+
+      // First validate format
+      const formatCheck = validateUsername(username)
+      if (!formatCheck.isValid) {
+        setUsernameValidation({ isChecking: false, isValid: false, message: formatCheck.message })
+        return
+      }
+
+      // Then check availability
+      setUsernameValidation({ isChecking: true, isValid: false, message: 'Checking availability...' })
+
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('username')
+          .ilike('username', username)
+          .limit(1)
+
+        if (error) throw error
+
+        if (data && data.length > 0) {
+          setUsernameValidation({
+            isChecking: false,
+            isValid: false,
+            message: 'Username already taken',
+          })
+        } else {
+          setUsernameValidation({
+            isChecking: false,
+            isValid: true,
+            message: 'Username available!',
+          })
+        }
+      } catch (error) {
+        console.error('Error checking username:', error)
+        setUsernameValidation({
+          isChecking: false,
+          isValid: false,
+          message: 'Error checking username',
+        })
+      }
+    }
+
+    // Debounce the check
+    const timeoutId = setTimeout(checkUsernameAvailability, 500)
+    return () => clearTimeout(timeoutId)
+  }, [localData.username])
+
   const handleChange = (field, value) => {
+    let processedValue = value
+
+    // For username, convert to lowercase and remove spaces
+    if (field === 'username') {
+      processedValue = value.toLowerCase().replace(/\s/g, '')
+    }
+
     const newData = {
       ...localData,
-      [field]: value,
+      [field]: processedValue,
     }
     setLocalData(newData)
-    
+
     // Update store
     updateFormData(ONBOARDING_STEPS.BASIC_INFO, {
+      fullName: newData.fullName,
+      username: newData.username,
       school: newData.school,
       age: newData.age,
       grade: newData.grade,
@@ -103,9 +207,61 @@ const BasicInfoStep = ({ formData, updateFormData, onScroll }) => {
       showsVerticalScrollIndicator={false}
       onScroll={onScroll}
       scrollEventThrottle={16}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled={true}
+      bounces={true}
     >
       <Text style={styles.title}>Let's get started</Text>
       <Text style={styles.subtitle}>Tell us a bit about yourself</Text>
+
+      <Input
+        label="Full name"
+        placeholder="Enter your full name"
+        value={localData.fullName}
+        onChangeText={(value) => handleChange('fullName', value)}
+        autoCapitalize="words"
+        containerStyle={styles.inputGroup}
+      />
+
+      {/* Username Input */}
+      <View style={styles.inputGroup}>
+        <Input
+          label="Username"
+          placeholder="Choose a unique username"
+          value={localData.username}
+          onChangeText={(value) => handleChange('username', value)}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {/* Validation indicator */}
+        {localData.username.length > 0 && (
+          <View style={styles.validationContainer}>
+            {usernameValidation.isChecking ? (
+              <>
+                <ActivityIndicator size="small" color="#A45CFF" />
+                <Text style={styles.validationText}>{usernameValidation.message}</Text>
+              </>
+            ) : usernameValidation.isValid ? (
+              <>
+                <Ionicons name="checkmark-circle" size={hp(2)} color="#4CAF50" />
+                <Text style={[styles.validationText, styles.validationSuccess]}>
+                  {usernameValidation.message}
+                </Text>
+              </>
+            ) : usernameValidation.message ? (
+              <>
+                <Ionicons name="close-circle" size={hp(2)} color="#EF4444" />
+                <Text style={[styles.validationText, styles.validationError]}>
+                  {usernameValidation.message}
+                </Text>
+              </>
+            ) : null}
+          </View>
+        )}
+        <Text style={styles.helperText}>
+          3-20 characters • Letters, numbers, and underscores only
+        </Text>
+      </View>
 
       {/* School Picker */}
       <Picker
@@ -175,6 +331,7 @@ const createStyles = () => StyleSheet.create({
   },
   contentContainer: {
     paddingVertical: hp(2),
+    paddingBottom: hp(20), // Extra padding for fixed navigation buttons at bottom
   },
   title: {
     fontSize: hp(4),
@@ -194,5 +351,27 @@ const createStyles = () => StyleSheet.create({
   inputGroup: {
     marginBottom: hp(3),
   },
+  validationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp(2),
+    marginTop: hp(1),
+  },
+  validationText: {
+    fontSize: hp(1.6),
+    color: '#8E8E8E',
+    fontFamily: 'System',
+  },
+  validationSuccess: {
+    color: '#4CAF50',
+  },
+  validationError: {
+    color: '#EF4444',
+  },
+  helperText: {
+    fontSize: hp(1.4),
+    color: '#8E8E8E',
+    fontFamily: 'System',
+    marginTop: hp(0.5),
+  },
 })
-

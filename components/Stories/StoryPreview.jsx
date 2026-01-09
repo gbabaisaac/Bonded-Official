@@ -1,7 +1,11 @@
-import React, { useState } from 'react'
-import { View, Modal, StyleSheet, TouchableOpacity, Text, Image, ActivityIndicator } from 'react-native'
+import React, { useState, useEffect } from 'react'
+import { View, Modal, StyleSheet, TouchableOpacity, Text, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
+import { Video } from 'expo-video'
+import * as Audio from 'expo-audio'
+import { LinearGradient } from 'expo-linear-gradient'
+import { Image as ExpoImage } from 'expo-image'
 import { hp, wp } from '../../helpers/common'
 import { useAppTheme } from '../../app/theme'
 
@@ -18,6 +22,15 @@ export default function StoryPreview({
   const theme = useAppTheme()
   const styles = createStyles(theme)
   const [isPosting, setIsPosting] = useState(false)
+
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    }).catch(() => {})
+  }, [])
 
   const handlePost = async () => {
     setIsPosting(true)
@@ -40,21 +53,36 @@ export default function StoryPreview({
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>Preview</Text>
-            <Text style={styles.headerSubtitle}>{forumName}</Text>
+            <Text style={styles.headerSubtitle}>
+              {typeof forumName === 'string' ? forumName : forumName?.name || 'Forum'}
+            </Text>
           </View>
           <View style={styles.headerButton} />
         </View>
 
         {/* Preview Canvas */}
         <View style={styles.preview}>
+          <LinearGradient
+            colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.05)', 'rgba(0,0,0,0.55)']}
+            style={styles.previewGradient}
+            locations={[0, 0.5, 1]}
+          />
           {type === 'video' ? (
-            <View style={styles.image}>
-              <Text style={styles.videoPlaceholder}>
-                Video preview (expo-av required for playback)
-              </Text>
-            </View>
+            <Video
+              style={styles.image}
+              source={{ uri: imageUri }}
+              resizeMode="cover"
+              useNativeControls
+              shouldPlay={false}
+            />
           ) : (
-            <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+            <ExpoImage
+              source={{ uri: imageUri }}
+              style={styles.image}
+              contentFit="cover"
+              placeholder="|rF?hV%2WCj[ayj[ayayfQfQayayj[fQfQj[j[fQfQfQayayfQfQayayj[j[fQj[j["
+              transition={300}
+            />
           )}
 
           {/* Render text overlays */}
@@ -127,7 +155,9 @@ export default function StoryPreview({
                   color={theme.colors.white}
                   style={{ marginRight: wp(2) }}
                 />
-                <Text style={styles.postButtonText}>Post to {forumName}</Text>
+                <Text style={styles.postButtonText}>
+                  Post to {typeof forumName === 'string' ? forumName : forumName?.name || 'Forum'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
@@ -173,9 +203,15 @@ const createStyles = (theme) => StyleSheet.create({
     flex: 1,
     position: 'relative',
   },
+  previewGradient: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+    pointerEvents: 'none',
+  },
   image: {
     width: '100%',
     height: '100%',
+    zIndex: 0,
   },
   textElement: {
     position: 'absolute',

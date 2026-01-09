@@ -1,146 +1,183 @@
-import { Text, ImageBackground, View, StyleSheet, Animated, TouchableWithoutFeedback, Keyboard } from 'react-native'
-import React, { useState, useEffect, useRef } from 'react'
-import { useRouter, useLocalSearchParams } from 'expo-router'
-import ScreenWrapper from '../components/ScreenWrapper'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { useAppTheme } from './theme'
-import { hp, wp } from '../helpers/common'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Alert, ImageBackground, Keyboard, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View, useColorScheme } from 'react-native'
 import AnimatedLogo from '../components/AnimatedLogo'
-import OTPInput from '../components/OTPInput'
-import Button from '../components/Button'
 import BackButton from '../components/BackButton'
+import Button from '../components/Button'
+import ScreenWrapper from '../components/ScreenWrapper'
+import { hp } from '../helpers/common'
+import { useSendOTP } from '../hooks/useSendOTP'
+import { useVerifyOTP } from '../hooks/useVerifyOTP'
+import { useAppTheme, useThemeMode } from './theme'
+
+const getFriendlyOtpError = (error) => {
+  const raw = (error?.message || '').toLowerCase()
+
+  if (raw.includes('expired')) {
+    return 'That code has expired. Tap "Resend Code" to get a new one.'
+  }
+
+  if (raw.includes('invalid') || raw.includes('token') || raw.includes('otp')) {
+    return 'That code is not correct. Double-check the numbers and try again.'
+  }
+
+  return 'We could not verify that code. Please try again, or resend a new one.'
+}
 
 export default function OTP() {
   const theme = useAppTheme()
   const styles = createStyles(theme)
   const router = useRouter()
-  const { type, email, name, isVerified } = useLocalSearchParams()
-  const [otpCode, setOtpCode] = useState('')
-  const hoverValue = useRef(new Animated.Value(0)).current
+  const { email } = useLocalSearchParams()
 
-  const isNewUser = type === 'new'
+  const [code, setCode] = useState('')
+  const [resendCooldown, setResendCooldown] = useState(60) // Start with 60s cooldown
+  const { mutate: sendOTP, isPending: isSending } = useSendOTP()
+  const { mutate: verifyOTP, isPending: isVerifying } = useVerifyOTP()
+  const cooldownTimerRef = useRef(null)
+  const { setMode } = useThemeMode()
+  const systemScheme = useColorScheme() || 'light'
 
-  useEffect(() => {
-    const hoverAnimation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(hoverValue, {
-          toValue: 1,
-          duration: 1800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(hoverValue, {
-          toValue: 0,
-          duration: 1800,
-          useNativeDriver: true,
-        }),
-      ])
-    )
-
-    hoverAnimation.start()
+  // Force light mode while OTP screen is displayed, then restore system preference
+  // Use useLayoutEffect to ensure theme changes BEFORE render
+  useLayoutEffect(() => {
+    setMode('light')
     return () => {
-      hoverAnimation.stop()
-      hoverValue.setValue(0)
+      setMode(systemScheme)
     }
-  }, [hoverValue])
+  }, [setMode, systemScheme])
 
-  const hoverTranslate = hoverValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -10],
-  })
+  // Handle resend cooldown timer
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      cooldownTimerRef.current = setTimeout(() => {
+        setResendCooldown(resendCooldown - 1)
+      }, 1000)
+    } else {
+      if (cooldownTimerRef.current) {
+        clearTimeout(cooldownTimerRef.current)
+        cooldownTimerRef.current = null
+      }
+    }
 
-  const handleOTPComplete = (code) => {
-    setOtpCode(code)
+    return () => {
+      if (cooldownTimerRef.current) {
+        clearTimeout(cooldownTimerRef.current)
+      }
+    }
+  }, [resendCooldown])
+
+  const handleVerify = () => {
+    if (!email) {
+      Alert.alert('Error', 'Email is missing. Please go back and try again.')
+      return
+    }
+
+    if (code.length !== 6) {
+      Alert.alert('Invalid code', 'Please enter the 6-digit code we emailed you.')
+      return
+    }
+
+    verifyOTP(
+      { email: String(email), token: code },
+      {
+        onSuccess: () => {
+          Alert.alert('Success', 'You are signed in!', [
+            {
+              text: 'Continue',
+              onPress: () => router.replace('/onboarding'),
+            },
+          ])
+        },
+        onError: (error) => {
+          console.error('Error verifying OTP:', error)
+          const message = getFriendlyOtpError(error)
+          Alert.alert('Couldn’t verify code', message)
+        },
+      }
+    )
   }
 
-  const handleContinue = () => {
-    // TODO: Verify OTP
-    console.log('OTP Code:', otpCode)
-    if (isNewUser) {
-      // Navigate to onboarding for new users
-      router.replace('/onboarding')
-    } else {
-      // Navigate to home for returning users
-      router.replace('/home')
+  const handleResend = () => {
+    if (!email) {
+      Alert.alert('Error', 'Email is missing. Please go back and try again.')
+      return
     }
+
+    if (resendCooldown > 0) {
+      Alert.alert('Please wait', `You can request a new code in ${resendCooldown} seconds.`)
+      return
+    }
+
+    console.log('🔄 Resending OTP to:', email)
+
+    sendOTP(String(email), {
+      onSuccess: () => {
+        console.log('✅ OTP resent successfully')
+        setCode('') // Clear old code
+        setResendCooldown(60) // Set 60 second cooldown
+        Alert.alert('Code sent!', 'Check your email for a new 6-digit code.\n\nNote: Codes expire after 60 seconds.')
+      },
+      onError: (error) => {
+        console.error('❌ Error resending OTP:', error)
+        const errorMessage = error?.message || ''
+        if (errorMessage.includes('security purposes')) {
+          Alert.alert('Too many requests', 'Please wait a minute before requesting another code.')
+        } else {
+          Alert.alert('Could not resend code', 'Please wait a moment and try again.')
+        }
+      },
+    })
   }
 
   return (
     <ImageBackground
       source={require('../assets/images/bonded-gradient.jpg')}
       style={styles.background}
-      resizeMode='cover'
+      resizeMode="cover"
     >
-      <ScreenWrapper bg='transparent'>
-        <StatusBar style='light' />
+      <ScreenWrapper bg="transparent">
+        <StatusBar style="light" />
         <BackButton onPress={() => router.back()} />
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.container}>
-            {/* Conditional rendering based on user type */}
-          {isNewUser ? (
-            // NEW USER - Create Account View
-            <View style={styles.contentContainer}>
-              <Text style={styles.welcomeTitle}>Welcome!</Text>
-              <Animated.View
-                style={[
-                  styles.linkContainer,
-                  { transform: [{ translateY: hoverTranslate }] }
-                ]}
-              >
-                <AnimatedLogo size={50} />
-              </Animated.View>
-              <Text style={styles.codePrompt}>
-                We sent you a verification code to your email
-              </Text>
-            </View>
-          ) : (
-            // RETURNING USER - Welcome Back View
-            <View style={styles.contentContainer}>
-              <Text style={styles.welcomeBackTitle}>Welcome back!</Text>
-              {name && (
-                <Text style={styles.nameText}>{name}</Text>
-              )}
-              <Animated.View
-                style={[
-                  styles.linkContainer,
-                  { transform: [{ translateY: hoverTranslate }] }
-                ]}
-              >
-                <AnimatedLogo size={50} />
-              </Animated.View>
-              <Text style={styles.codePrompt}>
-                We sent you a login code
-              </Text>
-              
-              {/* Verification Badge */}
-              {isVerified === 'true' && (
-                <View style={styles.verificationBadge}>
-                  <Text style={styles.badgeText}>✓ Student Verified</Text>
-                </View>
-              )}
-            </View>
-          )}
+            <AnimatedLogo size={60} style={styles.animatedLogo} />
+            <Text style={styles.title}>Enter your code</Text>
+            <Text style={styles.subtitle}>We sent a 6-digit code to {email}</Text>
+            <Text style={styles.hint}>Check your inbox (and spam folder)</Text>
 
-          {/* Shared OTP Input */}
-          <Animated.View
-            style={[
-              styles.otpContainer,
-              { transform: [{ translateY: hoverTranslate }] }
-            ]}
-          >
-            <OTPInput
-              length={4}
-              onComplete={handleOTPComplete}
-              value={otpCode}
-              onChangeText={setOtpCode}
+            <TextInput
+              style={styles.codeInput}
+              value={code}
+              onChangeText={setCode}
+              keyboardType="number-pad"
+              maxLength={6}
+              textAlign="center"
+              autoFocus
+              placeholder="000000"
+              placeholderTextColor="rgba(255,255,255,0.3)"
             />
-          </Animated.View>
 
-          {/* Continue Button */}
-          <Button
-            title="Continue"
-            onPress={handleContinue}
-            buttonStyle={styles.button}
-          />
+            <Button
+              title={isVerifying ? 'Verifying…' : 'Verify Code'}
+              onPress={handleVerify}
+              buttonStyle={styles.button}
+              disabled={isVerifying || code.length !== 6}
+            />
+
+            <Button
+              title={
+                isSending
+                  ? 'Sending…'
+                  : resendCooldown > 0
+                  ? `Resend code (${resendCooldown}s)`
+                  : 'Resend code'
+              }
+              onPress={handleResend}
+              buttonStyle={[styles.button, { marginTop: hp(2) }]}
+              disabled={isSending || resendCooldown > 0}
+            />
           </View>
         </TouchableWithoutFeedback>
       </ScreenWrapper>
@@ -148,81 +185,59 @@ export default function OTP() {
   )
 }
 
-const createStyles = (theme) => StyleSheet.create({
-  background: {
-    flex: 1,
-    width: '100%',
-  },
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: wp(6),
-  },
-  contentContainer: {
-    alignItems: 'center',
-    marginBottom: hp(4),
-  },
-  welcomeTitle: {
-    color: theme.colors.textPrimary,
-    fontSize: hp(5),
-    fontWeight: '800',
-    textAlign: 'center',
-    letterSpacing: -0.5,
-    fontFamily: theme.typography.fontFamily.heading,
-    marginBottom: hp(3),
-  },
-  welcomeBackTitle: {
-    color: theme.colors.textPrimary,
-    fontSize: hp(4),
-    fontWeight: '800',
-    textAlign: 'center',
-    letterSpacing: -0.5,
-    fontFamily: theme.typography.fontFamily.heading,
-    marginBottom: hp(1),
-  },
-  nameText: {
-    color: theme.colors.bondedPurple,
-    fontSize: hp(3),
-    fontWeight: '600',
-    textAlign: 'center',
-    fontFamily: theme.typography.fontFamily.heading,
-    marginBottom: hp(3),
-  },
-  linkContainer: {
-    marginVertical: hp(2),
-  },
-  codePrompt: {
-    color: theme.colors.textSecondary,
-    fontSize: hp(2.2),
-    textAlign: 'center',
-    fontFamily: theme.typography.fontFamily.body,
-    marginTop: hp(2),
-    paddingHorizontal: wp(4),
-  },
-  verificationBadge: {
-    backgroundColor: theme.colors.success + '20',
-    borderWidth: 1,
-    borderColor: theme.colors.success,
-    borderRadius: theme.radius.pill,
-    paddingVertical: hp(0.8),
-    paddingHorizontal: wp(4),
-    marginTop: hp(2),
-  },
-  badgeText: {
-    color: theme.colors.success,
-    fontSize: hp(1.8),
-    fontWeight: '600',
-    fontFamily: theme.typography.fontFamily.heading,
-  },
-  otpContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginVertical: hp(4),
-  },
-  button: {
-    width: '100%',
-    marginTop: hp(2),
-  },
-})
-
+const createStyles = (theme) =>
+  StyleSheet.create({
+    background: {
+      flex: 1,
+      width: '100%',
+    },
+    container: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: theme.spacing.xxxl,
+    },
+    animatedLogo: {
+      marginTop: hp(-20),
+      marginBottom: hp(4),
+    },
+    title: {
+      color: theme.colors.textPrimary,
+      fontSize: theme.typography.sizes.xxl,
+      fontWeight: theme.typography.weights.extrabold,
+      textAlign: 'center',
+      letterSpacing: -0.5,
+      fontFamily: theme.typography.fontFamily.heading,
+      marginBottom: theme.spacing.md,
+      paddingHorizontal: theme.spacing.lg,
+    },
+    subtitle: {
+      color: theme.colors.textSecondary,
+      fontSize: theme.typography.sizes.md,
+      textAlign: 'center',
+      marginBottom: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.lg,
+    },
+    hint: {
+      color: theme.colors.textSecondary,
+      fontSize: theme.typography.sizes.sm,
+      textAlign: 'center',
+      marginBottom: theme.spacing.xxl,
+      paddingHorizontal: theme.spacing.lg,
+      opacity: 0.7,
+    },
+    codeInput: {
+      width: '60%',
+      height: hp(7),
+      borderRadius: 12,
+      backgroundColor: 'rgba(255,255,255,0.9)',
+      color: '#000',
+      fontSize: theme.typography.sizes.xxl,
+      fontWeight: theme.typography.weights.bold,
+      letterSpacing: 8,
+    },
+    button: {
+      width: '100%',
+      marginTop: hp(4),
+    },
+  })

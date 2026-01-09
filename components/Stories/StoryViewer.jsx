@@ -1,28 +1,35 @@
 import { Ionicons } from '@expo/vector-icons'
+import * as Audio from 'expo-audio'
+import * as Haptics from 'expo-haptics'
+import { Image as ExpoImage } from 'expo-image'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useRouter } from 'expo-router'
+import { Video } from 'expo-video'
 import React, { useEffect, useRef, useState } from 'react'
 import {
-    Alert,
-    Animated,
-    Dimensions,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Animated,
+  Dimensions,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAppTheme } from '../../app/theme'
 import { useStoriesContext } from '../../contexts/StoriesContext'
 import { hp, wp } from '../../helpers/common'
 
 const STORY_DURATION = 5000 // 5 seconds per story segment
+const BLURHASH_PLACEHOLDER =
+  '|rF?hV%2WCj[ayj[ayayfQfQayayj[fQfQj[j[fQfQfQayayfQfQayayj[j[fQj[j['
 
 export default function StoryViewer({
   visible,
@@ -33,6 +40,7 @@ export default function StoryViewer({
 }) {
   const router = useRouter()
   const theme = useAppTheme()
+  const insets = useSafeAreaInsets()
   const [currentStoryGroupIndex, setCurrentStoryGroupIndex] = useState(initialIndex)
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
@@ -46,6 +54,7 @@ export default function StoryViewer({
   const pauseTimeRef = useRef(null)
   const remainingTimeRef = useRef(STORY_DURATION)
   const swipeUpAnim = useRef(new Animated.Value(0)).current
+  const videoRef = useRef(null)
   const { markStoryAsViewed, deleteStory, addCommentToStory, getStoryComments } =
     useStoriesContext()
 
@@ -67,6 +76,16 @@ export default function StoryViewer({
     }
   }, [currentStoryGroupIndex, totalSegments])
 
+  // Ensure audio plays in silent mode for video stories
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    }).catch(() => {})
+  }, [])
+
   useEffect(() => {
     if (visible && currentSegment && !isPaused) {
       startProgress()
@@ -82,7 +101,22 @@ export default function StoryViewer({
     }
   }, [currentStoryGroupIndex])
 
+  // Prefetch the first segment of the next story to avoid flashes
+  useEffect(() => {
+    const nextGroup = stories[currentStoryGroupIndex + 1]
+    const nextSegment = nextGroup?.segments?.[0]
+    if (nextSegment?.imageUri) {
+      ExpoImage.prefetch?.(nextSegment.imageUri).catch(() => {})
+    }
+  }, [currentStoryGroupIndex, stories])
+
   const startProgress = () => {
+    // For video segments, progress is driven by playback status updates
+    if (currentSegment?.type === 'video') {
+      progressAnims[currentSegmentIndex]?.setValue(0)
+      return
+    }
+
     const duration = remainingTimeRef.current
     Animated.timing(progressAnims[currentSegmentIndex], {
       toValue: 1,
@@ -97,6 +131,9 @@ export default function StoryViewer({
   }
 
   const pauseProgress = () => {
+    if (currentSegment?.type === 'video') {
+      videoRef.current?.pauseAsync?.()
+    }
     pauseTimeRef.current = Date.now()
     progressAnims[currentSegmentIndex].stopAnimation((value) => {
       remainingTimeRef.current = STORY_DURATION * (1 - value)
@@ -105,10 +142,14 @@ export default function StoryViewer({
   }
 
   const resumeProgress = () => {
+    if (currentSegment?.type === 'video') {
+      videoRef.current?.playAsync?.()
+    }
     setIsPaused(false)
   }
 
   const handleNext = () => {
+    Haptics.selectionAsync().catch(() => {})
     if (currentSegmentIndex < totalSegments - 1) {
       progressAnims[currentSegmentIndex].setValue(1)
       setCurrentSegmentIndex((prev) => prev + 1)
@@ -124,6 +165,7 @@ export default function StoryViewer({
   }
 
   const handlePrevious = () => {
+    Haptics.selectionAsync().catch(() => {})
     if (currentSegmentIndex > 0) {
       progressAnims[currentSegmentIndex].setValue(0)
       setCurrentSegmentIndex((prev) => prev - 1)
@@ -177,6 +219,21 @@ export default function StoryViewer({
     ])
   }
 
+  const handleVideoStatusUpdate = (status) => {
+    if (!status || !status.isLoaded) return
+    const { positionMillis, durationMillis, didJustFinish } = status
+
+    if (durationMillis && progressAnims[currentSegmentIndex]) {
+      const progress = Math.min(positionMillis / durationMillis, 1)
+      progressAnims[currentSegmentIndex].setValue(progress)
+    }
+
+    if (didJustFinish) {
+      remainingTimeRef.current = STORY_DURATION
+      handleNext()
+    }
+  }
+
   const handleSendComment = () => {
     if (!commentText.trim() || !currentStoryId) return
 
@@ -192,6 +249,7 @@ export default function StoryViewer({
   }
 
   const handleLike = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
     if (!currentStoryId) return
     setLikedStories((prev) => {
       const newSet = new Set(prev)
@@ -254,64 +312,84 @@ export default function StoryViewer({
   return (
     <Modal visible={visible} animationType="fade" onRequestClose={onClose}>
       <View style={styles.container}>
-        <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
           {/* Progress bars */}
-          <View style={styles.progressContainer}>
-            {currentStoryGroup.segments.map((_, index) => (
-              <View key={index} style={styles.progressBar}>
-                <Animated.View
-                  style={[
-                    styles.progressFill,
-                    {
-                      width:
-                        progressAnims[index]?.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0%', '100%'],
-                        }) || '0%',
-                      backgroundColor:
-                        index < currentSegmentIndex
-                          ? theme.colors.white
-                          : index === currentSegmentIndex
-                          ? theme.colors.white
-                          : 'rgba(255, 255, 255, 0.3)',
-                    },
-                  ]}
-                />
-              </View>
-            ))}
+          <View
+            style={[
+              styles.progressContainer,
+              { paddingTop: hp(0.75) + (insets.top || 0) },
+            ]}
+          >
+            {currentStoryGroup.segments.map((_, index) => {
+              const width =
+                progressAnims[index]?.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }) || '0%'
+              return (
+                <View key={index} style={styles.progressBar}>
+                  <Animated.View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width,
+                        backgroundColor:
+                          index <= currentSegmentIndex
+                            ? theme.colors.white
+                            : 'rgba(255,255,255,0.28)',
+                      },
+                    ]}
+                  />
+                </View>
+              )
+            })}
           </View>
 
           {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <View style={styles.avatar}>
-                {currentStoryGroup.thumbnail ? (
-                  <Image source={{ uri: currentStoryGroup.thumbnail }} style={styles.avatarImage} />
-                ) : (
-                  <Text style={styles.avatarText}>
-                    {currentStoryGroup.name?.charAt(0).toUpperCase()}
-                  </Text>
+          <LinearGradient
+            colors={['rgba(0,0,0,0.65)', 'transparent']}
+            style={[styles.headerGradient, { paddingTop: (insets.top || 0) + hp(0.5) }]}
+          >
+            <View style={styles.header}>
+              <View style={styles.headerLeft}>
+                <View style={styles.avatar}>
+                  {currentStoryGroup.thumbnail ? (
+                    <ExpoImage
+                      source={{ uri: currentStoryGroup.thumbnail }}
+                      style={styles.avatarImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <Text style={styles.avatarText}>
+                      {currentStoryGroup.name?.charAt(0).toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+                <View>
+                  <Text style={styles.name}>{currentStoryGroup.name}</Text>
+                  <Text style={styles.time}>{currentSegment.timeAgo || '3h'}</Text>
+                </View>
+              </View>
+              <View style={styles.headerRight}>
+                {isOwnStory && (
+                  <TouchableOpacity onPress={handleDelete} style={styles.headerButton}>
+                    <Ionicons name="trash-outline" size={hp(2.5)} color={theme.colors.white} />
+                  </TouchableOpacity>
                 )}
-              </View>
-              <View>
-                <Text style={styles.name}>{currentStoryGroup.name}</Text>
-                <Text style={styles.time}>{currentSegment.timeAgo || '3h ago'}</Text>
-              </View>
-            </View>
-            <View style={styles.headerRight}>
-              {isOwnStory && (
-                <TouchableOpacity onPress={handleDelete} style={styles.headerButton}>
-                  <Ionicons name="trash-outline" size={hp(2.5)} color={theme.colors.white} />
+                <TouchableOpacity onPress={onClose} style={styles.headerButton}>
+                  <Ionicons name="close" size={hp(2.8)} color={theme.colors.white} />
                 </TouchableOpacity>
-              )}
-              <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-                <Ionicons name="close" size={hp(2.8)} color={theme.colors.white} />
-              </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </LinearGradient>
 
           {/* Story content - Proper dimensions */}
           <View style={styles.content}>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.05)', 'rgba(0,0,0,0.5)']}
+              style={styles.contentGradient}
+              locations={[0, 0.5, 1]}
+            />
             <Pressable
               style={StyleSheet.absoluteFill}
               onPress={handleTap}
@@ -319,16 +397,24 @@ export default function StoryViewer({
               onPressOut={handleLongPressOut}
             >
             {currentSegment.type === 'video' ? (
-              <View style={styles.media}>
-                <Text style={styles.videoPlaceholder}>
-                  Video playback requires expo-av
-                </Text>
-              </View>
+              <Video
+                key={currentStoryId}
+                ref={videoRef}
+                style={styles.media}
+                source={{ uri: currentSegment.videoUri || currentSegment.imageUri }}
+                resizeMode="cover"
+                shouldPlay={!isPaused}
+                isLooping={false}
+                useNativeControls={false}
+                onPlaybackStatusUpdate={handleVideoStatusUpdate}
+              />
             ) : (
-              <Image
+              <ExpoImage
                 source={{ uri: currentSegment.imageUri }}
                 style={styles.media}
-                resizeMode="contain"
+                contentFit="cover"
+                placeholder={BLURHASH_PLACEHOLDER}
+                transition={300}
               />
             )}
 
@@ -392,36 +478,44 @@ export default function StoryViewer({
           </View>
 
           {/* Bottom Action Bar */}
-          <View style={styles.bottomActions}>
-            <View style={styles.bottomActionsLeft}>
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.65)']}
+            style={styles.bottomGradient}
+          >
+            <View style={styles.bottomActions}>
+              <View style={styles.bottomActionsLeft}>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => setShowComments(true)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="chatbubble-outline" size={hp(2.6)} color={theme.colors.white} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.actionButton,
+                    likedStories.has(currentStoryId) && styles.actionButtonActive,
+                  ]}
+                  onPress={handleLike}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={likedStories.has(currentStoryId) ? "heart" : "heart-outline"}
+                    size={hp(2.6)}
+                    color={likedStories.has(currentStoryId) ? "#FF3040" : theme.colors.white}
+                  />
+                </TouchableOpacity>
+              </View>
               <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => setShowComments(true)}
-                activeOpacity={0.7}
+                style={styles.messageButton}
+                onPress={() => setShowMessageModal(true)}
+                activeOpacity={0.85}
               >
-                <Ionicons name="chatbubble-outline" size={hp(2.8)} color={theme.colors.white} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={handleLike}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={likedStories.has(currentStoryId) ? "heart" : "heart-outline"}
-                  size={hp(2.8)}
-                  color={likedStories.has(currentStoryId) ? "#FF3040" : theme.colors.white}
-                />
+                <Ionicons name="paper-plane-outline" size={hp(2.2)} color={theme.colors.white} />
+                <Text style={styles.messageButtonText}>Share</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              style={styles.messageButton}
-              onPress={() => setShowMessageModal(true)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="paper-plane-outline" size={hp(2.2)} color={theme.colors.white} />
-              <Text style={styles.messageButtonText}>Message</Text>
-            </TouchableOpacity>
-          </View>
+          </LinearGradient>
 
           {/* Message Modal */}
           {showMessageModal && (
@@ -539,27 +633,29 @@ const createStyles = (theme) => StyleSheet.create({
   progressContainer: {
     flexDirection: 'row',
     gap: wp(1),
-    paddingHorizontal: wp(4),
-    paddingTop: hp(1),
-    paddingBottom: hp(1.5),
+    paddingHorizontal: wp(3.5),
   },
   progressBar: {
     flex: 1,
-    height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 2,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    borderRadius: 4,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 4,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: wp(4),
-    paddingBottom: hp(1.5),
+    paddingHorizontal: wp(3.5),
+    paddingBottom: hp(1),
+    paddingTop: hp(0.5),
+  },
+  headerGradient: {
+    paddingTop: hp(1),
   },
   headerLeft: {
     flexDirection: 'row',
@@ -595,14 +691,20 @@ const createStyles = (theme) => StyleSheet.create({
     fontWeight: '700',
   },
   name: {
-    fontSize: hp(1.8),
+    fontSize: theme.typography.sizes.lg,
     color: theme.colors.white,
-    fontWeight: '600',
+    fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   time: {
-    fontSize: hp(1.3),
+    fontSize: theme.typography.sizes.sm,
     color: theme.colors.white,
-    opacity: 0.9,
+    opacity: theme.typography.opacity.meta,
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   content: {
     flex: 1,
@@ -611,6 +713,12 @@ const createStyles = (theme) => StyleSheet.create({
     height: '100%',
     maxWidth: wp(100),
     maxHeight: hp(100),
+    overflow: 'hidden',
+  },
+  contentGradient: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+    pointerEvents: 'none',
   },
   media: {
     width: '100%',
@@ -622,16 +730,11 @@ const createStyles = (theme) => StyleSheet.create({
     bottom: 0,
     maxWidth: wp(100),
     maxHeight: hp(100),
-  },
-  videoPlaceholder: {
-    color: theme.colors.white,
-    fontSize: hp(2),
-    textAlign: 'center',
-    opacity: 0.7,
+    zIndex: 0,
   },
   textElement: {
     position: 'absolute',
-    zIndex: 10,
+    zIndex: 2,
   },
   textWrapper: {
     paddingHorizontal: wp(2),
@@ -644,23 +747,29 @@ const createStyles = (theme) => StyleSheet.create({
   },
   stickerElement: {
     position: 'absolute',
-    zIndex: 10,
+    zIndex: 2,
   },
   pausedIndicator: {
     position: 'absolute',
     top: '50%',
     left: '50%',
     transform: [{ translateX: -hp(3) }, { translateY: -hp(3) }],
+    zIndex: 3,
   },
-  bottomActions: {
+  bottomGradient: {
     position: 'absolute',
-    bottom: hp(2),
     left: 0,
     right: 0,
+    bottom: 0,
+    paddingBottom: hp(1),
+  },
+  bottomActions: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: wp(4),
+    paddingBottom: hp(2),
+    paddingTop: hp(1.5),
   },
   bottomActionsLeft: {
     flexDirection: 'row',
@@ -671,9 +780,12 @@ const createStyles = (theme) => StyleSheet.create({
     width: hp(5),
     height: hp(5),
     borderRadius: hp(2.5),
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  actionButtonActive: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   messageButton: {
     flexDirection: 'row',
@@ -682,7 +794,7 @@ const createStyles = (theme) => StyleSheet.create({
     paddingHorizontal: wp(4),
     paddingVertical: hp(1.2),
     borderRadius: hp(2.5),
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   messageButtonText: {
     fontSize: hp(1.6),

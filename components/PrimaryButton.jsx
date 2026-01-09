@@ -25,7 +25,7 @@ const PrimaryButton = ({
       style={[styles.button, style, disabled && styles.buttonDisabled]}
     >
       <LinearGradient
-        colors={[theme.colors.bondedPurple, '#7C3AED']}
+        colors={[theme.colors.bondedPurple, '#8B0000']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={styles.gradient}

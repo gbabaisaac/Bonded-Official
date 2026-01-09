@@ -1,26 +1,26 @@
-import React, { useState, useMemo } from 'react'
+import { Ionicons } from '@expo/vector-icons'
+import React, { useMemo, useState } from 'react'
 import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
-  FlatList,
-  TextInput,
-  Platform,
-  Image,
+    FlatList,
+    Image,
+    Modal,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
 import { useAppTheme } from '../app/theme'
 import { hp, wp } from '../helpers/common'
-import AppCard from './AppCard'
 
 const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, onClose, onCreateForum }) => {
   const theme = useAppTheme()
   const styles = createStyles(theme)
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedSections, setExpandedSections] = useState({
+    campus: true, // Main forum section expanded by default
     pinned: true,
     classes: true,
     orgs: true,
@@ -29,15 +29,18 @@ const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, on
 
   // Organize forums by category
   const organizedForums = useMemo(() => {
-    const pinned = forums.filter((f) => f.isPinned)
+    // Campus forums (main forum) - should be pinned and shown first
+    const campusForums = forums.filter((f) => f.type === 'campus')
+    // Pinned forums (including campus forums)
+    const pinned = forums.filter((f) => f.isPinned || f.type === 'campus')
     const classes = forums.filter((f) => f.type === 'class')
     const orgs = forums.filter((f) => f.type === 'org')
     const privateForums = forums.filter((f) => f.type === 'private')
     const other = forums.filter(
-      (f) => !f.isPinned && f.type !== 'class' && f.type !== 'org' && f.type !== 'private'
+      (f) => !f.isPinned && f.type !== 'class' && f.type !== 'org' && f.type !== 'private' && f.type !== 'campus'
     )
 
-    return { pinned, classes, orgs, private: privateForums, other }
+    return { campus: campusForums, pinned, classes, orgs, private: privateForums, other }
   }, [forums])
 
   // Filter forums by search query
@@ -46,6 +49,7 @@ const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, on
 
     const query = searchQuery.toLowerCase()
     const allForums = [
+      ...organizedForums.campus,
       ...organizedForums.pinned,
       ...organizedForums.classes,
       ...organizedForums.orgs,
@@ -81,6 +85,7 @@ const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, on
   const getForumIcon = (type) => {
     switch (type) {
       case 'main':
+      case 'campus':
         return 'home'
       case 'class':
         return 'school'
@@ -96,6 +101,7 @@ const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, on
   const getForumColor = (type) => {
     switch (type) {
       case 'main':
+      case 'campus':
         return theme.colors.bondedPurple
       case 'class':
         return '#4ECDC4'
@@ -142,14 +148,14 @@ const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, on
             </Text>
           )}
           <View style={styles.forumMeta}>
-            {item.memberCount && (
+            {item.memberCount !== undefined && item.memberCount !== null && item.memberCount >= 0 && (
               <Text style={styles.forumMetaText}>
-                {item.memberCount.toLocaleString()} members
+                {item.memberCount.toLocaleString()} {item.memberCount === 1 ? 'member' : 'members'}
               </Text>
             )}
-            {item.postCount !== undefined && (
+            {item.postCount !== undefined && item.postCount !== null && (
               <Text style={styles.forumMetaText}>
-                {item.postCount} posts
+                {item.postCount.toLocaleString()} {item.postCount === 1 ? 'post' : 'posts'}
               </Text>
             )}
             {item.unreadCount > 0 && (
@@ -209,7 +215,8 @@ const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, on
 
   const allForumsList = useMemo(() => {
     return [
-      ...filteredForums.pinned,
+      ...filteredForums.campus,
+      ...filteredForums.pinned.filter(f => f.type !== 'campus'), // Pinned but not campus (to avoid duplicates)
       ...filteredForums.classes,
       ...filteredForums.orgs,
       ...filteredForums.private,
@@ -273,7 +280,8 @@ const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, on
               showsVerticalScrollIndicator={false}
               ListHeaderComponent={
                 <View>
-                  {renderSection('⭐ Pinned', filteredForums.pinned, 'pinned', 'star')}
+                  {renderSection('🏠 Main Forum', filteredForums.campus, 'campus', 'home')}
+                  {renderSection('⭐ Pinned', filteredForums.pinned.filter(f => f.type !== 'campus'), 'pinned', 'star')}
                   {renderSection('📚 My Classes', filteredForums.classes, 'classes', 'school')}
                   {renderSection('🏢 My Organizations', filteredForums.orgs, 'orgs', 'people')}
                   {renderSection('🔒 Private Forums', filteredForums.private, 'private', 'lock-closed')}
@@ -284,22 +292,7 @@ const ForumSelectorModal = ({ visible, forums, currentForumId, onSelectForum, on
             />
           )}
 
-          {/* Create Forum Button */}
-          <View style={styles.footer}>
-            <TouchableOpacity
-              style={styles.createButton}
-              activeOpacity={0.7}
-              onPress={() => {
-                if (onCreateForum) {
-                  onCreateForum()
-                }
-                onClose()
-              }}
-            >
-              <Ionicons name="add-circle" size={hp(2.2)} color={theme.colors.bondedPurple} />
-              <Text style={styles.createButtonText}>Create Forum</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Create Forum disabled for V1 */}
         </View>
       </SafeAreaView>
     </Modal>
@@ -505,4 +498,3 @@ const createStyles = (theme) => StyleSheet.create({
     fontFamily: theme.typography.fontFamily.heading,
   },
 })
-
